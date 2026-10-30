@@ -108,6 +108,29 @@
   #toast { position: fixed; top: 16px; left: 50%; z-index: 10; max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px; background: #262a35; color: #fff; font-size: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4); opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: opacity .2s, transform .2s; }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+  /* громкость микрофона — зелёное кольцо вокруг кнопки */
+  .ctl { position: relative; }
+  .ctl.js-mic { box-shadow: 0 0 0 calc(var(--lvl, 0) * 7px) rgba(63,191,127,.6); transition: box-shadow 80ms linear, background .15s; }
+  .badge { position: absolute; top: -2px; right: -2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+
+  /* чат */
+  #chat { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 16px; bottom: max(100px, calc(var(--kb, 0px) + 12px)); z-index: 5; display: flex; flex-direction: column; width: min(360px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden; }
+  .chat-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
+  .icon-btn { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--muted); }
+  .icon-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .chat-log { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 12px; overflow-y: auto; }
+  .chat-empty { margin: auto 0; color: var(--muted); font-size: 13px; text-align: center; }
+  .msg { max-width: 85%; padding: 8px 12px 6px; border-radius: 14px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .msg.mine { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.theirs { align-self: flex-start; background: rgba(255,255,255,.1); border-bottom-left-radius: 4px; }
+  .msg a { color: inherit; text-decoration: underline; }
+  .msg-time { display: block; margin-top: 2px; font-size: 11px; opacity: .65; text-align: right; }
+  .chat-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
+  .chat-form input { flex: 1; min-width: 0; padding: 10px 12px; background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 12px; outline: none; }
+  .chat-form input:focus { border-color: var(--accent); }
+  .chat-form .btn { width: 44px; padding: 0; }
+
   /* песец */
   #foxStage { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; --fox-ground: 22px; }
   body[data-screen="call"] #foxStage { --fox-ground: 112px; }
@@ -121,9 +144,15 @@
     .controls { gap: 10px; }
     .ctl { width: 50px; height: 50px; }
     #localVideo { right: 12px; bottom: 92px; }
+    #chat { right: 12px; width: calc(100% - 24px); }
+  }
+  @media (max-width: 420px) {
+    .controls { gap: 8px; }
+    .ctl { width: 46px; height: 46px; }
   }
   /* Плашка «Powered by Netlify» в правом нижнем углу: на узких экранах поднимаем кнопки над ней. */
   @media (max-width: 720px) {
+    body:has(#nl-badge-frame) #chat { bottom: max(150px, calc(var(--kb, 0px) + 12px)); }
     body:has(#nl-badge-frame) .controls { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
     body:has(#nl-badge-frame) #localVideo { bottom: 150px; }
     body:has(#nl-badge-frame)[data-screen="call"] #foxStage { --fox-ground: 160px; }
@@ -178,6 +207,14 @@
   <video id="localVideo" autoplay muted playsinline hidden></video>
   <div id="callInfo" hidden><span id="timer">00:00</span><span id="remoteMuted" title="У собеседника выключен микрофон" hidden><i data-i="micOff"></i></span></div>
   <div id="remoteState" hidden><div class="pill">Камера собеседника выключена</div></div>
+  <div id="chat" hidden>
+    <div class="chat-head"><b>Чат</b><button id="chatClose" class="icon-btn" type="button" title="Закрыть"><i data-i="x"></i></button></div>
+    <div id="chatLog" class="chat-log"></div>
+    <form id="chatForm" class="chat-form">
+      <input id="chatInput" autocomplete="off" maxlength="2000" aria-label="Сообщение">
+      <button class="btn btn-primary" type="submit" title="Отправить"><i data-i="send"></i></button>
+    </form>
+  </div>
   <div id="waiting">
     <div class="panel">
       <div id="spinner" class="spinner"></div>
@@ -204,7 +241,9 @@
   <div class="controls">
     <button class="ctl js-mic" type="button"><i data-i="mic" class="i-on"></i><i data-i="micOff" class="i-off"></i></button>
     <button class="ctl js-cam" type="button"><i data-i="cam" class="i-on"></i><i data-i="camOff" class="i-off"></i></button>
+    <button id="flipBtn" class="ctl" type="button" title="Повернуть камеру" hidden><i data-i="flip"></i></button>
     <button id="screenBtn" class="ctl" type="button"><i data-i="screen"></i></button>
+    <button id="chatBtn" class="ctl" type="button" title="Чат"><i data-i="chat"></i><span id="chatBadge" class="badge" hidden></span></button>
     <button id="linkBtn" class="ctl" type="button" title="Скопировать ссылку"><i data-i="link"></i></button>
     <button id="hangBtn" class="ctl hang" type="button" title="Завершить"><i data-i="phone"></i></button>
   </div>
@@ -276,6 +315,10 @@ const ICONS = {
   camOff: '<path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><path d="M1 1l22 22"/>',
   screen: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/>',
+  x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  flip: '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
 };
@@ -290,7 +333,8 @@ const S = {
   active: false, connected: false,
   inviteSid: null, awaiting: false, pendingInvite: null, altAction: null,
   media: null,   // { mic, cam, placeholder, out, hasMic, note }
-  mediaReady: null, mediaGen: 0, camBusy: false,
+  mediaReady: null, mediaGen: 0, camBusy: false, facing: 'user', camCount: 0,
+  chatOpen: false, unread: 0,
   screen: null, micOn: true,
   remote: { video: false, mic: true, known: false },
   timers: {}, tickTimer: null, startedAt: 0,
@@ -507,11 +551,13 @@ async function acquireMedia(gen) {
   S.media = { mic, cam: null, placeholder, hasMic: !!mic, note,
               out: new MediaStream([mic || silentAudioTrack(), placeholder]) };
   S.micOn = !!mic;
+  if (mic) Meter.start(mic);
   return S.media;
 }
 
 function stopMedia() {
   stopScreen();
+  Meter.stop();
   S.mediaGen++;
   S.mediaReady = null;
   if (!S.media) return;
@@ -528,7 +574,7 @@ function refreshPreviews() {
   for (const el of [$('localVideo'), $('previewVideo')]) {
     if (!v) el.srcObject = null;
     else if (!el.srcObject || el.srcObject.getVideoTracks()[0] !== v) el.srcObject = new MediaStream([v]);
-    el.classList.toggle('mirror', !!v && v === S.media.cam);
+    el.classList.toggle('mirror', !!v && v === S.media.cam && S.facing !== 'environment');
   }
   $('localVideo').hidden = !v;
   $('previewOff').hidden = !!v;
@@ -547,6 +593,8 @@ function updateControls() {
     b.classList.toggle('is-off', !on);
     b.title = !canUseCamera ? 'Камера недоступна' : on ? 'Выключить камеру' : 'Включить камеру';
   });
+  $('flipBtn').hidden = !(m?.cam && S.camCount > 1);
+  $('flipBtn').disabled = S.camBusy;
   $('screenBtn').classList.toggle('is-on', !!S.screen);
   $('screenBtn').title = S.screen ? 'Остановить показ экрана' : 'Показать экран';
 }
@@ -585,7 +633,7 @@ async function toggleCam() {
     S.camBusy = true;
     updateControls();
     let track = null;
-    try { track = (await navigator.mediaDevices.getUserMedia({ video: VIDEO })).getVideoTracks()[0]; }
+    try { track = (await navigator.mediaDevices.getUserMedia({ video: { ...VIDEO, facingMode: S.facing } })).getVideoTracks()[0]; }
     catch (e) { toast('Не удалось включить камеру. Разрешите доступ к ней в адресной строке.', 5000); }
     S.camBusy = false;
     if (track && S.media !== m) { track.stop(); return; }
@@ -595,7 +643,105 @@ async function toggleCam() {
     }
   }
   videoChanged();
+  if (m.cam) countCameras();
 }
+
+// Передняя ↔ основная камера. На телефоне — по facingMode, на компьютере — следующая камера из списка.
+async function countCameras() {
+  try { S.camCount = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').length; }
+  catch (e) { S.camCount = 0; }
+  updateControls();
+}
+async function switchCamera() {
+  const m = S.media;
+  if (!m?.cam || S.camBusy) return;
+  S.camBusy = true;
+  updateControls();
+  const old = m.cam;
+  const oldId = old.getSettings().deviceId;
+  const want = S.facing === 'environment' ? 'user' : 'environment';
+  const { facingMode, ...base } = VIDEO;
+  const open = video => navigator.mediaDevices.getUserMedia({ video }).then(s => s.getVideoTracks()[0]);
+  old.stop();   // многие телефоны не дают открыть две камеры одновременно
+  let track = null, facing = S.facing;
+  try {
+    track = await open({ ...base, facingMode: { exact: want } });
+    facing = want;
+  } catch (e) {
+    try {
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const next = cams[(cams.findIndex(c => c.deviceId === oldId) + 1) % cams.length];
+      if (next && next.deviceId !== oldId) {
+        track = await open({ ...base, deviceId: { exact: next.deviceId } });
+        facing = track.getSettings().facingMode || 'user';
+      }
+    } catch (e2) {}
+  }
+  if (!track) {
+    toast('Не удалось переключить камеру', 4000);
+    try { track = await open({ ...base, deviceId: { exact: oldId } }); } catch (e) {}   // возвращаем прежнюю
+  }
+  S.camBusy = false;
+  if (S.media !== m) { track?.stop(); return; }
+  S.facing = facing;
+  m.cam = track;
+  if (track) track.addEventListener('ended', () => { if (m.cam === track) { m.cam = null; videoChanged(); } });
+  videoChanged();
+}
+
+// Уровень громкости микрофона — для кольца вокруг кнопки. Слушаем копию дорожки:
+// её не глушит кнопка микрофона, поэтому можно подсказать «вы говорите, а микрофон выключен».
+const Meter = {
+  ctx: null, analyser: null, clone: null, buf: null, raf: 0, last: 0, level: 0, loudSince: 0, warnedAt: 0,
+  start(track) {
+    this.stop();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    try {
+      this.clone = track.clone();
+      this.ctx = new Ctx();
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.ctx.createMediaStreamSource(new MediaStream([this.clone])).connect(this.analyser);
+      this.buf = new Float32Array(this.analyser.fftSize);
+      this.ctx.resume().catch(() => {});
+      const tick = now => {
+        this.raf = requestAnimationFrame(tick);
+        if (now - this.last >= 50) { this.last = now; this.update(now); }
+      };
+      this.raf = requestAnimationFrame(tick);
+    } catch (e) {
+      this.stop();
+    }
+  },
+  update(now) {
+    this.analyser.getFloatTimeDomainData(this.buf);
+    let sum = 0;
+    for (const v of this.buf) sum += v * v;
+    const db = 10 * Math.log10(sum / this.buf.length + 1e-10);
+    const target = Math.min(1, Math.max(0, (db + 55) / 40));   // −55 дБ — тишина, −15 дБ — громко
+    this.level = target > this.level ? target : this.level * 0.8 + target * 0.2;
+    const shown = S.micOn ? this.level.toFixed(2) : 0;
+    document.querySelectorAll('.js-mic').forEach(b => b.style.setProperty('--lvl', shown));
+    if (!S.micOn && S.active && target > 0.45) {
+      if (!this.loudSince) this.loudSince = now;
+      if (now - this.loudSince > 800 && now - this.warnedAt > 20000) {
+        this.warnedAt = now;
+        toast('Вы говорите, а микрофон выключен');
+      }
+    } else {
+      this.loudSince = 0;
+    }
+  },
+  stop() {
+    cancelAnimationFrame(this.raf);
+    this.clone?.stop();
+    this.ctx?.close().catch(() => {});
+    this.ctx = this.analyser = this.clone = null;
+    this.level = 0;
+    document.querySelectorAll('.js-mic').forEach(b => b.style.setProperty('--lvl', 0));
+  },
+};
 
 async function toggleScreen() {
   if (S.screen) return stopScreen();
@@ -619,12 +765,17 @@ function stopScreen() {
 // ---------- служебный канал: камера и микрофон собеседника ----------
 
 function sendState() {
+  updateChatInput();
   const dc = S.dc;
   if (!dc || !dc.open || !S.media) return;
   try { dc.send({ type: 'state', video: !!ownVideo(), mic: S.micOn }); } catch (e) {}
 }
+function onData(d) {
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'state') onState(d);
+  else if (d.type === 'chat' && typeof d.text === 'string') onChat(d.text.slice(0, 2000));
+}
 function onState(d) {
-  if (!d || d.type !== 'state') return;
   S.remote = { video: !!d.video, mic: !!d.mic, known: true };
   updateRemoteView();
 }
@@ -633,6 +784,85 @@ function updateRemoteView() {
   $('call').classList.toggle('remote-on', live && S.remote.video);
   $('remoteState').hidden = !(live && !S.remote.video);
   $('remoteMuted').hidden = !(live && !S.remote.mic);
+}
+
+// ---------- чат ----------
+// Сообщения идут по тому же прямому каналу и нигде не хранятся.
+
+const CHAT_EMPTY = 'Сообщения идут напрямую собеседнику и исчезнут после звонка.';
+
+function updateChatInput() {
+  const ok = !!S.dc?.open;
+  $('chatInput').disabled = !ok;
+  $('chatInput').placeholder = ok ? 'Сообщение' : 'Чат заработает, когда собеседник подключится';
+}
+function updateBadge() {
+  $('chatBadge').hidden = !S.unread;
+  $('chatBadge').textContent = S.unread > 9 ? '9+' : S.unread;
+}
+function setChatOpen(open) {
+  S.chatOpen = open;
+  $('chat').hidden = !open;
+  $('chatBtn').classList.toggle('is-on', open);
+  if (!open) return;
+  S.unread = 0;
+  updateBadge();
+  $('chatLog').scrollTop = $('chatLog').scrollHeight;
+  if (!matchMedia('(pointer: coarse)').matches) $('chatInput').focus();
+}
+function addMessage(text, mine) {
+  const log = $('chatLog');
+  log.querySelector('.chat-empty')?.remove();
+  const el = document.createElement('div');
+  el.className = 'msg ' + (mine ? 'mine' : 'theirs');
+  // Ссылки кликабельны и открываются в новой вкладке — звонок при этом не прерывается.
+  const re = /https?:\/\/[^\s<>"']+/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    const url = m[0].replace(/[.,!?;:)\]]+$/, '');
+    el.append(text.slice(last, m.index));
+    const a = document.createElement('a');
+    a.href = url;
+    a.textContent = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    el.append(a);
+    last = m.index + url.length;
+  }
+  el.append(text.slice(last));
+  const time = document.createElement('span');
+  time.className = 'msg-time';
+  time.textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  el.append(time);
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+}
+function sendChat() {
+  const input = $('chatInput');
+  const text = input.value.trim().slice(0, 2000);
+  if (!text) return;
+  if (!S.dc?.open) return toast('Нет связи с собеседником — сообщение не отправлено');
+  try { S.dc.send({ type: 'chat', text }); }
+  catch (e) { return toast('Не удалось отправить сообщение'); }
+  addMessage(text, true);
+  input.value = '';
+}
+function onChat(text) {
+  addMessage(text, false);
+  if (S.chatOpen) return;
+  S.unread++;
+  updateBadge();
+  toast('Собеседник: ' + (text.length > 80 ? text.slice(0, 80) + '…' : text), 4000);
+}
+function resetChat() {
+  setChatOpen(false);
+  S.unread = 0;
+  updateBadge();
+  const empty = document.createElement('p');
+  empty.className = 'chat-empty';
+  empty.textContent = CHAT_EMPTY;
+  $('chatLog').replaceChildren(empty);
+  $('chatInput').value = '';
 }
 
 // ---------- соединение ----------
@@ -698,7 +928,7 @@ function connect() {
       S.dc = conn;
       sendState();
     });
-    conn.on('data', d => { if (S.dc === conn) onState(d); });
+    conn.on('data', d => { if (S.dc === conn) onData(d); });
     conn.on('close', () => { if (S.dc === conn) S.dc = null; });
   });
   peer.on('error', err => {
@@ -730,7 +960,7 @@ function callHost(hostId) {
     dc.on('data', d => {
       if (d === 'busy') {
         if (S.call === call && !S.connected) failCall('В этой комнате уже идёт разговор. Звонилка рассчитана на двоих.');
-      } else if (S.dc === dc) onState(d);
+      } else if (S.dc === dc) onData(d);
     });
     dc.on('close', () => { if (S.dc === dc) S.dc = null; });
     later('join', CONFIG.joinTimeout, () => {
@@ -840,6 +1070,7 @@ function dropCall() {
   $('unmuteBtn').hidden = true;
   $('callInfo').hidden = true;
   updateRemoteView();
+  updateChatInput();
 }
 
 function onRemoteGone() {
@@ -959,7 +1190,7 @@ function directCall(pc) {
         let d;
         try { d = JSON.parse(e.data); } catch (err) { return; }
         if (d.type === 'bye') call.emit('close');
-        else if (S.dc === dc) onState(d);
+        else if (S.dc === dc) onData(d);
       };
       channel.onclose = () => {
         if (S.dc === dc) S.dc = null;
@@ -1227,6 +1458,7 @@ function leaveCall(showEnded = true) {
   S.active = false;
   S.awaiting = false;
   Awake.off();
+  resetChat();
   cancel('retry', 'reconnect', 'join', 'drop', 'peerOpen');
   dropCall();
   destroyPeer();
@@ -1321,15 +1553,32 @@ $('screenBtn').onclick = toggleScreen;
 $('screenBtn').hidden = !navigator.mediaDevices?.getDisplayMedia;
 document.querySelectorAll('.js-mic').forEach(b => b.onclick = toggleMic);
 document.querySelectorAll('.js-cam').forEach(b => b.onclick = toggleCam);
+$('flipBtn').onclick = switchCamera;
+$('chatBtn').onclick = () => setChatOpen(!S.chatOpen);
+$('chatClose').onclick = () => setChatOpen(false);
+$('chatForm').onsubmit = e => { e.preventDefault(); sendChat(); };
+$('chatInput').addEventListener('keydown', e => { if (e.key === 'Escape') setChatOpen(false); });
+navigator.mediaDevices?.addEventListener?.('devicechange', countCameras);
+// Браузер может не дать запустить звук до первого касания — оживляем индикатор громкости.
+addEventListener('pointerdown', () => { if (Meter.ctx?.state === 'suspended') Meter.ctx.resume().catch(() => {}); }, { passive: true });
+// Экранная клавиатура на телефоне не должна закрывать поле чата.
+if (window.visualViewport) {
+  const fitKeyboard = () => $('chat').style.setProperty('--kb', Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop) + 'px');
+  visualViewport.addEventListener('resize', fitKeyboard);
+  visualViewport.addEventListener('scroll', fitKeyboard);
+}
+resetChat();
+updateChatInput();
 $('remoteVideo').onclick = e => e.currentTarget.classList.toggle('cover');
 $('unmuteBtn').onclick = () => { $('remoteVideo').play().catch(() => {}); $('unmuteBtn').hidden = true; };
 $('fileWarn').hidden = location.protocol !== 'file:';
 
 window.addEventListener('hashchange', route);
 window.addEventListener('pagehide', () => { try { S.call?.close(); S.peer?.destroy(); } catch (e) {} });
-// Без сервера приглашение живёт только в этой вкладке — предупреждаем, если её закрывают раньше времени.
+// Уход со страницы обрывает звонок — браузер переспросит. Без сервера то же и пока ждём ответа:
+// приглашение живёт только в этой вкладке.
 window.addEventListener('beforeunload', e => {
-  if (S.mode === 'direct' && S.active && !S.connected && S.call) { e.preventDefault(); e.returnValue = ''; }
+  if (S.active && (S.connected || (S.mode === 'direct' && S.call))) { e.preventDefault(); e.returnValue = ''; }
 });
 updateControls();
 route();
