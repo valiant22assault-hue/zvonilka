@@ -741,7 +741,9 @@ function onIce(call, st) {
     if (!S.connected) { S.connected = true; onConnected(); }
   } else if (st === 'disconnected') {
     if (S.connected) toast('Связь прерывается…', 4000);
-    later('drop', 10000, () => { if (S.call === call) onRemoteGone(); });
+    // Через сервер звонилка переподключится сама, а без сервера после разрыва нужны новые ссылки —
+    // поэтому там ждём дольше: связь часто возвращается сама.
+    later('drop', S.mode === 'direct' ? 45000 : 10000, () => { if (S.call === call) onRemoteGone(); });
   } else if (st === 'failed') {
     // Без сервера отвечающий ждёт, пока собеседник откроет ответную ссылку: до этого проверки связи неизбежно не проходят.
     if (S.mode === 'direct' && S.role === 'answerer' && !S.connected) return;
@@ -933,6 +935,7 @@ function enterDirect(role) {
   S.active = true;
   S.connected = false;
   S.awaiting = false;
+  Awake.on();
   cancel('retry', 'reconnect', 'peerOpen', 'join');
   dropCall();
   destroyPeer();
@@ -1056,6 +1059,50 @@ function handoffAnswer(r) {
   }, 1200);
 }
 
+// ---------- экран не гаснет, пока идёт звонок ----------
+// Если телефон заснёт, браузер заморозит страницу и звонок оборвётся.
+
+const Awake = {
+  want: false, lock: null, pending: false, warned: false,
+  async on() {
+    this.want = true;
+    if (!('wakeLock' in navigator)) {
+      if (!this.warned && matchMedia('(pointer: coarse)').matches) {
+        this.warned = true;
+        toast('Этот браузер не умеет удерживать экран включённым — не давайте телефону заснуть во время звонка.', 7000);
+      }
+      return;
+    }
+    if (this.lock || this.pending || document.visibilityState !== 'visible') return;
+    this.pending = true;
+    try {
+      const lock = await navigator.wakeLock.request('screen');
+      if (!this.want) { lock.release().catch(() => {}); return; }
+      this.lock = lock;
+      lock.addEventListener('release', () => { if (this.lock === lock) this.lock = null; });
+    } catch (e) {
+      console.warn('Wake Lock:', e.name, e.message);
+    } finally {
+      this.pending = false;
+    }
+  },
+  off() {
+    this.want = false;
+    const lock = this.lock;
+    this.lock = null;
+    if (lock) lock.release().catch(() => {});
+  },
+};
+
+// Блокировка снимается, когда вкладку сворачивают, — возвращаем её и не ждём таймеров, чтобы восстановить связь.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !S.active) return;
+  Awake.on();
+  if (S.mode !== 'server') return;
+  if (S.peer?.disconnected && !S.peer.destroyed) S.peer.reconnect();
+  if (S.call && S.connected && !isLive(S.call)) onRemoteGone();
+});
+
 // ---------- экраны ----------
 
 function route() {
@@ -1111,6 +1158,7 @@ async function enterCall(showNote) {
   S.pendingInvite = null;
   S.active = true;
   S.connected = false;
+  Awake.on();
   $('linkBtn').hidden = false;
   $('linkInput').value = roomLink(S.room);
   $('callInfo').hidden = true;
@@ -1129,6 +1177,7 @@ async function enterCall(showNote) {
 function leaveCall(showEnded = true) {
   S.active = false;
   S.awaiting = false;
+  Awake.off();
   cancel('retry', 'reconnect', 'join', 'drop', 'peerOpen');
   dropCall();
   destroyPeer();
