@@ -1,0 +1,15 @@
+{
+  "name": "Звонилка",
+  "short_name": "Звонилка",
+  "description": "Видеозвонки и переписка с контактами прямо в браузере",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#5a5e66",
+  "theme_color": "#5a5e66",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

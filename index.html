@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#5a5e66">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Звонилка</title>
 <!--
   Звонилка — видеозвонки по ссылке. Всё приложение в этом одном файле.
@@ -131,6 +133,46 @@
   .chat-form input:focus { border-color: var(--accent); }
   .chat-form .btn { width: 44px; padding: 0; }
 
+  /* контакты */
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .card-head h2 { margin: 0; font-size: 20px; }
+  .btn-sm { width: auto; padding: 8px 12px; font-size: 14px; }
+  .muted-s { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  #nameForm, #inviteBox { margin-bottom: 14px; }
+  .contacts { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  .contact { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 12px; cursor: pointer; }
+  .contact:hover { background: rgba(255,255,255,.05); }
+  .avatar { position: relative; flex: none; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #3d4352; font-size: 17px; font-weight: 700; }
+  .avatar .online { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border: 2px solid #25282e; border-radius: 50%; background: var(--ok); }
+  .c-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .c-main b, .c-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-main small { color: var(--muted); font-size: 12px; }
+  .count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+  .relay-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #9aa1ad; }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--danger); }
+  #pushBtn { margin: 6px 0 0; }
+
+  /* переписка */
+  #conv { justify-content: center; }
+  .conv { display: flex; flex-direction: column; width: min(640px, 100%); height: var(--vvh, 100dvh); background: #24272d; }
+  @media (min-width: 700px) { .conv { height: calc(var(--vvh, 100dvh) - 48px); margin: 24px 0; border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.28); overflow: hidden; } }
+  .conv-head { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid var(--line); }
+  .conv-head .ctl { width: 42px; height: 42px; }
+  .msg-sys { align-self: center; color: var(--muted); font-size: 12px; }
+  .ctl.accept, .ctl.accept:hover { background: var(--ok); }
+
+  /* входящий звонок */
+  .ring { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10,12,16,.6); backdrop-filter: blur(4px); }
+  .ring-card { width: min(340px, 100%); padding: 28px 24px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+  .ring-card .avatar { width: 84px; height: 84px; margin: 0 auto 14px; font-size: 34px; animation: pulse 1.4s ease-out infinite; }
+  @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(63,191,127,.55); } to { box-shadow: 0 0 0 22px rgba(63,191,127,0); } }
+  .ring-card h2 { margin: 0; }
+  .ring-card .sub { margin: 4px 0 22px; }
+  .ring-btns { display: flex; justify-content: center; gap: 48px; }
+  .ring-btns .ctl { width: 62px; height: 62px; }
+
   /* песец */
   #foxStage { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; --fox-ground: 22px; }
   body[data-screen="call"] #foxStage { --fox-ground: 112px; }
@@ -178,6 +220,28 @@
       <input id="joinInput" placeholder="Ссылка или код комнаты" autocomplete="off" aria-label="Ссылка или код комнаты">
       <button class="btn btn-ghost" type="submit">Войти</button>
     </form>
+  </div>
+  <div id="contactsCard" class="card">
+    <div class="card-head">
+      <h2>Контакты</h2>
+      <button id="addContactBtn" class="btn btn-ghost btn-sm" type="button"><i data-i="plus"></i>Добавить</button>
+    </div>
+    <form id="nameForm" class="join" hidden>
+      <input id="nameInput" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+    </form>
+    <div id="inviteBox" hidden>
+      <p class="muted-s">Отправьте эту ссылку человеку. Когда её откроют, вы появитесь друг у друга в контактах. Ссылка одноразовая — не пересылайте её другим.</p>
+      <div class="linkbox">
+        <input id="inviteInput" readonly aria-label="Ссылка-приглашение">
+        <button id="inviteCopyBtn" class="btn btn-primary" type="button">Копировать</button>
+      </div>
+    </div>
+    <ul id="contactList" class="contacts"></ul>
+    <p id="contactsEmpty" class="hint">Пока пусто. Нажмите «Добавить» и отправьте ссылку — человек появится здесь, и вы сможете писать и звонить друг другу без пересылки ссылок.</p>
+    <p id="invitesWaiting" class="hint" hidden></p>
+    <button id="pushBtn" class="btn btn-link" type="button" hidden>Включить уведомления о звонках</button>
+    <div id="relayRow" class="relay-row" hidden><span id="relayDot" class="dot"></span><span id="relayText"></span></div>
   </div>
   <p class="foot">
     <button id="downloadBtn" class="btn btn-link" type="button"><i data-i="download"></i>Скачать свою звонилку</button>
@@ -249,6 +313,33 @@
   </div>
 </section>
 
+<section id="addScreen" class="screen center">
+  <div class="card">
+    <h2 id="addTitle">Вас приглашают в контакты</h2>
+    <p class="sub">После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.</p>
+    <form id="addForm" class="join">
+      <input id="addName" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </form>
+    <button id="addCancel" class="btn btn-link" type="button">Отмена</button>
+  </div>
+</section>
+
+<section id="conv" class="screen">
+  <div class="conv">
+    <header class="conv-head">
+      <button id="convBack" class="icon-btn" type="button" title="К контактам"><i data-i="back"></i></button>
+      <div class="c-main"><b id="convName"></b><small id="convStatus"></small></div>
+      <button id="convCall" class="ctl accept" type="button" title="Позвонить"><i data-i="phone"></i></button>
+    </header>
+    <div id="convLog" class="chat-log"></div>
+    <form id="convForm" class="chat-form">
+      <input id="convInput" placeholder="Сообщение" autocomplete="off" maxlength="2000" aria-label="Сообщение">
+      <button class="btn btn-primary" type="submit" title="Отправить"><i data-i="send"></i></button>
+    </form>
+  </div>
+</section>
+
 <section id="ended" class="screen center">
   <div class="card" style="text-align:center">
     <h2>Звонок завершён</h2>
@@ -269,6 +360,18 @@
     <button id="handoffHomeBtn" class="btn btn-link" type="button">На главную</button>
   </div>
 </section>
+
+<div id="ring" class="ring" hidden>
+  <div class="ring-card">
+    <div id="ringAvatar" class="avatar"></div>
+    <h2 id="ringName"></h2>
+    <p class="sub">звонит вам</p>
+    <div class="ring-btns">
+      <button id="ringDecline" class="ctl hang" type="button" title="Отклонить"><i data-i="phone"></i></button>
+      <button id="ringAccept" class="ctl accept" type="button" title="Принять"><i data-i="phone"></i></button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -299,6 +402,14 @@ const CONFIG = {
   idPrefix: 'zvonilka-',
   // Сколько ждать ответа собеседника, мс.
   joinTimeout: 20000,
+  // Реле для контактов и переписки — общедоступные MQTT-брокеры. Сообщения шифруются: ключ знают только двое.
+  relays: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'],
+  // Функция push-уведомлений (адреса пробуются по очереди) и её публичный ключ.
+  pushUrls: ['https://zvonilka-online.netlify.app/api/push'],
+  vapidPublicKey: 'BIV-1_xeVcIjQqzr_3S2aXYoDmDL8sIH_C63wjwNdWALROc8EyeWv7uXYUmilAdzHszeVXsrjxTGZClnOh3RjUI',
+  // Ссылки для собеседников всегда ведут на этот адрес: он открывается из России.
+  shareUrl: 'https://valiant22assault-hue.github.io/zvonilka/',
+  ourHosts: ['zvonilka-online.netlify.app', 'valiant22assault-hue.github.io'],
 };
 
 // Спрайты песца (размеры в пикселях картинки, на экране — вдвое меньше).
@@ -321,10 +432,12 @@ const ICONS = {
   flip: '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
+  back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
 };
-document.querySelectorAll('i[data-i]').forEach(el => {
-  el.outerHTML = `<svg class="${el.className}" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.i]}</svg>`;
-});
+const iconSvg = (name, cls = '') =>
+  `<svg class="${cls}" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+document.querySelectorAll('i[data-i]').forEach(el => { el.outerHTML = iconSvg(el.dataset.i, el.className); });
 
 const $ = id => document.getElementById(id);
 const S = {
@@ -335,6 +448,7 @@ const S = {
   media: null,   // { mic, cam, placeholder, out, hasMic, note }
   mediaReady: null, mediaGen: 0, camBusy: false, facing: 'user', camCount: 0,
   chatOpen: false, unread: 0,
+  contact: null, callId: null, lastContact: null,   // звонок контакту через реле
   screen: null, micOn: true,
   remote: { video: false, mic: true, known: false },
   timers: {}, tickTimer: null, startedAt: 0,
@@ -495,7 +609,9 @@ function cleanRoom(s) {
   return s.length >= 4 ? s.slice(0, 32) : null;
 }
 const pageUrl = () => location.href.split('#')[0];
-const roomLink = room => pageUrl() + '#' + room;
+// Ссылки собеседникам с наших адресов ведут на зеркало, которое открывается из России.
+const shareBase = () => CONFIG.ourHosts.includes(location.host) ? CONFIG.shareUrl : pageUrl();
+const roomLink = room => shareBase() + '#' + room;
 
 // ---------- камера и микрофон ----------
 // Микрофон включается сразу, камера — только по кнопке.
@@ -715,6 +831,7 @@ const Meter = {
     }
   },
   update(now) {
+    if (!this.analyser) return;
     this.analyser.getFloatTimeDomainData(this.buf);
     let sum = 0;
     for (const v of this.buf) sum += v * v;
@@ -810,9 +927,18 @@ function setChatOpen(open) {
   $('chatLog').scrollTop = $('chatLog').scrollHeight;
   if (!matchMedia('(pointer: coarse)').matches) $('chatInput').focus();
 }
+function timeOf(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? time : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ', ' + time;
+}
 function addMessage(text, mine) {
   const log = $('chatLog');
   log.querySelector('.chat-empty')?.remove();
+  log.append(buildMessage(text, mine));
+  log.scrollTop = log.scrollHeight;
+}
+function buildMessage(text, mine, ts = Date.now(), status = '') {
   const el = document.createElement('div');
   el.className = 'msg ' + (mine ? 'mine' : 'theirs');
   // Ссылки кликабельны и открываются в новой вкладке — звонок при этом не прерывается.
@@ -832,10 +958,9 @@ function addMessage(text, mine) {
   el.append(text.slice(last));
   const time = document.createElement('span');
   time.className = 'msg-time';
-  time.textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  time.textContent = timeOf(ts) + status;
   el.append(time);
-  log.append(el);
-  log.scrollTop = log.scrollHeight;
+  return el;
 }
 function sendChat() {
   const input = $('chatInput');
@@ -845,10 +970,12 @@ function sendChat() {
   try { S.dc.send({ type: 'chat', text }); }
   catch (e) { return toast('Не удалось отправить сообщение'); }
   addMessage(text, true);
+  if (S.contact) addHistory(S.contact, { id: randomId(9), mine: true, text, ts: Date.now(), status: 'delivered' });
   input.value = '';
 }
 function onChat(text) {
   addMessage(text, false);
+  if (S.contact) addHistory(S.contact, { id: randomId(9), mine: false, text, ts: Date.now() });
   if (S.chatOpen) return;
   S.unread++;
   updateBadge();
@@ -1076,6 +1203,7 @@ function dropCall() {
 function onRemoteGone() {
   dropCall();
   if (!S.active) return;
+  if (S.contact) return endContactCall('Собеседник завершил звонок.');
   if (S.mode === 'direct') return setStatus('Собеседник отключился. Чтобы созвониться снова без сервера, нужно новое приглашение.', { share: false, retry: true });
   setStatus('Собеседник отключился. Ждём, пока вернётся…');
   if (S.role === 'guest') retry(1000);
@@ -1111,7 +1239,7 @@ function setStatus(text, { share = true, link = null, answer = false, retry = fa
   }
   $('answerBlock').hidden = !answer;
   $('retryBtn').hidden = !retry;
-  $('retryBtn').textContent = direct ? 'Новое приглашение' : 'Попробовать снова';
+  $('retryBtn').textContent = S.contact ? 'Позвонить снова' : direct ? 'Новое приглашение' : 'Попробовать снова';
   $('altBtn').hidden = !alt;
   if (alt) { $('altBtn').textContent = alt.label; S.altAction = alt.run; }
   $('spinner').hidden = !spinner;
@@ -1215,6 +1343,7 @@ function enterDirect(role) {
   S.active = true;
   S.connected = false;
   S.awaiting = false;
+  S.contact = null;
   Awake.on();
   cancel('retry', 'reconnect', 'peerOpen', 'join');
   dropCall();
@@ -1243,7 +1372,7 @@ async function startDirect() {
   if (S.call !== call) return;
   S.inviteSid = sid;
   S.awaiting = true;
-  const url = pageUrl() + '#i=' + sid + '.' + await packSdp(pc.localDescription.sdp);
+  const url = shareBase() + '#i=' + sid + '.' + await packSdp(pc.localDescription.sdp);
   setStatus('Приглашение готово', {
     link: { text: 'Отправьте собеседнику эту ссылку-приглашение. Не закрывайте эту вкладку, пока он не ответит.', url },
     answer: true,
@@ -1271,7 +1400,7 @@ async function acceptInvite(invite) {
   }
   await iceGathered(pc);
   if (S.call !== call) return;
-  const url = pageUrl() + '#a=' + invite.sid + '.' + await packSdp(pc.localDescription.sdp);
+  const url = shareBase() + '#a=' + invite.sid + '.' + await packSdp(pc.localDescription.sdp);
   setStatus('Почти готово', {
     link: { text: 'Отправьте эту ответную ссылку собеседнику. Как только он её откроет, звонок начнётся.', url },
     spinner: true,
@@ -1383,9 +1512,668 @@ document.addEventListener('visibilitychange', () => {
   if (S.call && S.connected && !isLive(S.call)) onRemoteGone();
 });
 
+// ---------- контакты: постоянная связь через общественные реле ----------
+// Реле — бесплатные общедоступные MQTT-брокеры. Они только пересылают зашифрованные конверты:
+// ключ знает лишь пара собеседников (он приходит в ссылке-приглашении и хранится в браузере).
+// Для того, кто не в сети, сообщения лежат на реле (retained), пока он их не заберёт.
+
+const te = new TextEncoder(), td = new TextDecoder();
+const EMPTY = new Uint8Array(0);
+const randomId = (bytes = 16) => b64uEncode(crypto.getRandomValues(new Uint8Array(bytes)));
+const initial = name => (String(name || '').trim()[0] || '?').toUpperCase();
+function concatBytes(...parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+async function sha256(...parts) {
+  const data = concatBytes(...parts.map(p => typeof p === 'string' ? te.encode(p) : p));
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+}
+
+const Store = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem('zvonilka.' + key); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  },
+  set(key, value) { try { localStorage.setItem('zvonilka.' + key, JSON.stringify(value)); } catch (e) {} },
+};
+const Me = Store.get('me', null) || { id: randomId(), name: '' };
+Store.set('me', Me);
+let contacts = Store.get('contacts', []);   // { id, name, secret, unread, push }
+let invites = Store.get('invites', []);     // { secret, created } — ещё не принятые приглашения
+const saveContacts = () => Store.set('contacts', contacts);
+const saveInvites = () => Store.set('invites', invites);
+const loadHistory = id => Store.get('history.' + id, []);
+const saveHistory = (id, list) => Store.set('history.' + id, list.slice(-1000));
+function addHistory(c, entry) {
+  const list = loadHistory(c.id);
+  if (entry.id && list.some(m => m.id === entry.id)) return false;
+  list.push(entry);
+  saveHistory(c.id, list);
+  return true;
+}
+
+// Топик и ключ шифрования пары выводятся из общего секрета.
+const pairCache = new Map();
+function pairOf(secret) {
+  if (!pairCache.has(secret)) pairCache.set(secret, (async () => {
+    const raw = b64uDecode(secret);
+    const topic = 'zvonilka/v1/' + b64uEncode((await sha256(raw, 'topic')).slice(0, 18));
+    const key = await crypto.subtle.importKey('raw', await sha256(raw, 'key'), 'AES-GCM', false, ['encrypt', 'decrypt']);
+    return { topic, key };
+  })());
+  return pairCache.get(secret);
+}
+const presenceTopicOf = async id => 'zvonilka/v1/p/' + b64uEncode((await sha256('presence', id)).slice(0, 18));
+async function seal(key, obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, te.encode(JSON.stringify(obj)));
+  return concatBytes(iv, new Uint8Array(data));
+}
+async function unseal(key, bytes) {
+  const data = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, key, bytes.subarray(12));
+  return JSON.parse(td.decode(data));
+}
+
+// Минимальный клиент MQTT 3.1.1 поверх WebSocket: подключиться, подписаться, опубликовать.
+class MqttLink {
+  constructor(url, index) {
+    Object.assign(this, { url, index, ready: false, queue: [], backoff: 2000, pid: 0 });
+    this.connect();
+  }
+  static str(s) {
+    const b = typeof s === 'string' ? te.encode(s) : s;
+    return concatBytes(new Uint8Array([b.length >> 8, b.length & 255]), b);
+  }
+  static packet(type, body) {
+    const len = [];
+    let n = body.length;
+    do { let d = n % 128; n = Math.floor(n / 128); if (n) d |= 128; len.push(d); } while (n);
+    return concatBytes(new Uint8Array([type, ...len]), body);
+  }
+  connect() {
+    let ws;
+    try { ws = new WebSocket(this.url, ['mqtt']); } catch (e) { return this.retry(); }
+    ws.binaryType = 'arraybuffer';
+    this.ws = ws;
+    this.buf = EMPTY;
+    ws.onopen = () => ws.send(this.connectPacket());
+    ws.onmessage = e => this.feed(new Uint8Array(e.data));
+    ws.onclose = () => {
+      if (this.ws !== ws) return;
+      this.ready = false;
+      clearInterval(this.ping);
+      Relay.changed();
+      this.retry();
+    };
+  }
+  retry() {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => this.connect(), this.backoff);
+    this.backoff = Math.min(30000, this.backoff * 2);
+  }
+  connectPacket() {
+    const will = Relay.will();   // «не в сети» — брокер опубликует сам, если связь оборвётся
+    const id = 'zv' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
+    const parts = [MqttLink.str('MQTT'), new Uint8Array([4, 0x02 | (will ? 0x24 : 0), 0, 60]), MqttLink.str(id)];
+    if (will) parts.push(MqttLink.str(will.topic), MqttLink.str(will.payload));
+    return MqttLink.packet(0x10, concatBytes(...parts));
+  }
+  feed(chunk) {
+    this.buf = this.buf.length ? concatBytes(this.buf, chunk) : chunk;
+    while (this.buf.length >= 2) {
+      let len = 0, mul = 1, i = 1, b;
+      do {
+        if (i >= this.buf.length) return;
+        b = this.buf[i++];
+        len += (b & 127) * mul;
+        mul *= 128;
+      } while (b & 128);
+      if (this.buf.length < i + len) return;
+      const type = this.buf[0], body = this.buf.subarray(i, i + len);
+      this.buf = this.buf.subarray(i + len);
+      this.handle(type, body);
+    }
+  }
+  handle(type, body) {
+    if (type >> 4 === 2) {             // CONNACK
+      if (body[1] !== 0) return this.ws.close();
+      this.ready = true;
+      this.backoff = 2000;
+      Relay.subs.forEach(t => this.sendSubscribe(t));
+      this.queue.splice(0).forEach(p => this.ws.send(p));
+      clearInterval(this.ping);
+      this.ping = setInterval(() => this.raw(new Uint8Array([0xc0, 0])), 25000);
+      Relay.connected(this);
+    } else if (type >> 4 === 3) {      // PUBLISH
+      const tl = (body[0] << 8) | body[1];
+      const qos = (type >> 1) & 3;
+      const topic = td.decode(body.subarray(2, 2 + tl));
+      const payload = body.slice(2 + tl + (qos ? 2 : 0));
+      if (qos === 1) this.raw(MqttLink.packet(0x40, body.slice(2 + tl, 4 + tl)));
+      Relay.receive(topic, payload, (type & 1) === 1, this);
+    }
+  }
+  raw(p) { if (this.ready && this.ws.readyState === 1) this.ws.send(p); }
+  send(p) {
+    if (this.ready && this.ws.readyState === 1) this.ws.send(p);
+    else if (this.queue.length < 500) this.queue.push(p);   // отправим, когда связь вернётся
+  }
+  sendSubscribe(topic) {
+    this.pid = this.pid % 65535 + 1;
+    this.raw(MqttLink.packet(0x82, concatBytes(new Uint8Array([this.pid >> 8, this.pid & 255]), MqttLink.str(topic), new Uint8Array([0]))));
+  }
+  publish(topic, payload, retain) {
+    this.send(MqttLink.packet(0x30 | (retain ? 1 : 0), concatBytes(MqttLink.str(topic), payload)));
+  }
+}
+
+// Все реле работают параллельно: пишем во все, дубликаты при чтении отбрасываем.
+const Relay = {
+  links: [], subs: new Set(), presenceTopic: null,
+  owners: new Map(),          // топик пары → секрет
+  presenceOwners: new Map(),  // топик присутствия → id контакта
+  presence: new Map(),        // id контакта → [{ on, at } по каждому реле]
+  start() {
+    if (this.links.length || !this.presenceTopic) return;
+    this.links = CONFIG.relays.map((url, i) => new MqttLink(url, i));
+    setInterval(() => this.announce(), 60000);
+    setInterval(renderContacts, 30000);
+    addEventListener('pagehide', () => this.links.forEach(l =>
+      l.raw(MqttLink.packet(0x31, concatBytes(MqttLink.str(this.presenceTopic), te.encode('0:' + Date.now()))))));
+    this.changed();
+  },
+  will() { return this.presenceTopic && { topic: this.presenceTopic, payload: '0:' + Date.now() }; },
+  connected(link) {
+    link.publish(this.presenceTopic, te.encode('1:' + Date.now()), true);
+    this.changed();
+  },
+  announce() { this.links.forEach(l => l.ready && l.publish(this.presenceTopic, te.encode('1:' + Date.now()), true)); },
+  subscribe(topic) {
+    if (this.subs.has(topic)) return;
+    this.subs.add(topic);
+    this.links.forEach(l => l.sendSubscribe(topic));
+  },
+  publish(topic, payload, retain = false) { this.links.forEach(l => l.publish(topic, payload, retain)); },
+  online() { return this.links.some(l => l.ready); },
+  changed() { renderRelay(); },
+  async receive(topic, payload, retained, link) {
+    const who = this.presenceOwners.get(topic);
+    if (who) return onPresence(who, payload, retained, link.index);
+    const base = topic.split('/').slice(0, 3).join('/');
+    const secret = this.owners.get(base);
+    if (!secret || !payload.length) return;   // пустой retained — значит, конверт уже забрали
+    let d;
+    try { d = await unseal((await pairOf(secret)).key, payload); } catch (e) { return; }
+    if (!d || d.from === Me.id) return;
+    const invite = invites.find(i => i.secret === secret);
+    if (invite) return d.t === 'hello' && onHello(invite, d, topic);
+    const c = contacts.find(x => x.secret === secret);
+    if (!c || d.from !== c.id) return;
+    if (d.t === 'msg') onContactMessage(c, d, topic);
+    else if (d.t === 'ack') onAck(c, d);
+    else if (d.t === 'push') { if (d.sub?.endpoint) { c.push = d.sub; saveContacts(); } }
+    else if (d.t === 'hello') this.publish(topic, EMPTY, true);
+    else if (d.t === 'offer') onOffer(c, d, topic);
+    else onCallSignal(c, d);
+  },
+};
+
+async function watchSecret(secret) {
+  const { topic } = await pairOf(secret);
+  Relay.owners.set(topic, secret);
+  Relay.subscribe(topic + '/#');
+}
+async function watchContact(c) {
+  await watchSecret(c.secret);
+  const topic = await presenceTopicOf(c.id);
+  Relay.presenceOwners.set(topic, c.id);
+  Relay.subscribe(topic);
+}
+async function relaySend(c, sub, obj, retain = false) {
+  const { topic, key } = await pairOf(c.secret);
+  Relay.publish(topic + '/' + sub, await seal(key, { ...obj, from: Me.id }), retain);
+}
+async function relayClear(c, sub) {
+  Relay.publish((await pairOf(c.secret)).topic + '/' + sub, EMPTY, true);
+}
+
+function onPresence(id, payload, retained, index) {
+  const [state, ts] = td.decode(payload).split(':');
+  const list = Relay.presence.get(id) || [];
+  list[index] = { on: state === '1', at: retained ? +ts || 0 : Date.now() };
+  Relay.presence.set(id, list);
+  renderContacts();
+  if (convContact?.id === id) renderConvHead();
+}
+// «В сети» — если в последние 2,5 минуты пришла отметка присутствия (страница обновляет её раз в минуту).
+const isOnline = c => (Relay.presence.get(c.id) || []).some(p => p && p.on && Date.now() - p.at < 150000);
+
+// ---------- приглашения ----------
+
+async function createContactInvite() {
+  if (!Me.name) {
+    $('nameInput').focus();
+    return toast('Сначала напишите, как вас зовут');
+  }
+  const inv = { secret: randomId(32), created: Date.now() };
+  invites.push(inv);
+  saveInvites();
+  Relay.start();
+  await watchSecret(inv.secret);
+  $('inviteInput').value = shareBase() + '#add=' + Me.id + '.' + inv.secret + '.' + b64uEncode(te.encode(Me.name));
+  $('inviteBox').hidden = false;
+  renderContacts();
+}
+function parseAddLink(hash) {
+  const m = String(hash || '').match(/#add=([A-Za-z0-9_-]{16,32})\.([A-Za-z0-9_-]{40,48})\.([A-Za-z0-9_-]*)/);
+  if (!m) return null;
+  let name = '';
+  try { name = td.decode(b64uDecode(m[3])).trim().slice(0, 40); } catch (e) {}
+  return { id: m[1], secret: m[2], name: name || 'Контакт' };
+}
+
+let pendingAdd = null;
+function openAddScreen(add) {
+  pendingAdd = add;
+  $('addTitle').textContent = add.name + ' приглашает вас в контакты';
+  $('addName').value = Me.name;
+  show('addScreen');
+}
+async function acceptContactLink() {
+  const add = pendingAdd;
+  if (!add) return;
+  const name = $('addName').value.trim().slice(0, 40);
+  if (!name) return $('addName').focus();
+  if (add.id === Me.id) return toast('Это ваша собственная ссылка — отправьте её собеседнику', 5000);
+  Me.name = name;
+  Store.set('me', Me);
+  let c = contacts.find(x => x.id === add.id);
+  if (!c) contacts.push(c = { id: add.id, name: add.name, secret: add.secret, unread: 0 });
+  else c.secret = add.secret;
+  saveContacts();
+  pendingAdd = null;
+  history.replaceState(null, '', pageUrl());
+  Relay.start();
+  await watchContact(c);
+  await relaySend(c, 'hello', { t: 'hello', name: Me.name }, true);   // дойдёт, даже если пригласивший не в сети
+  sharePush(c);
+  openConv(c);
+  toast(c.name + ' теперь в ваших контактах');
+}
+function onHello(inv, d, topic) {
+  invites = invites.filter(i => i !== inv);
+  saveInvites();
+  let c = contacts.find(x => x.id === d.from);
+  if (!c) contacts.push(c = { id: d.from, name: String(d.name || 'Контакт').slice(0, 40), secret: inv.secret, unread: 0 });
+  else c.secret = inv.secret;
+  saveContacts();
+  Relay.publish(topic, EMPTY, true);
+  watchContact(c);
+  sharePush(c);
+  if ($('inviteInput').value.includes(inv.secret)) $('inviteBox').hidden = true;
+  renderContacts();
+  toast('Новый контакт: ' + c.name, 5000);
+  systemNotify('Новый контакт', c.name);
+}
+
+// ---------- переписка ----------
+
+let convContact = null;
+
+async function sendText(c, text) {
+  const m = { id: randomId(9), text, ts: Date.now() };
+  addHistory(c, { ...m, mine: true, status: 'sent' });
+  await relaySend(c, 'm/' + m.id, { t: 'msg', ...m }, true);   // лежит на реле, пока собеседник не заберёт
+  if (!isOnline(c)) Push.notify(c, 'msg');
+}
+function onContactMessage(c, d, topic) {
+  Relay.publish(topic, EMPTY, true);                 // забрали — убираем с реле
+  relaySend(c, 'sig', { t: 'ack', ids: [d.id] });   // «доставлено» для отправителя
+  if (typeof d.text !== 'string' || !addHistory(c, { id: d.id, mine: false, text: d.text.slice(0, 2000), ts: d.ts || Date.now() })) return;
+  if (convContact === c && document.body.dataset.screen === 'conv' && document.visibilityState === 'visible') return renderConv();
+  c.unread = (c.unread || 0) + 1;
+  saveContacts();
+  renderContacts();
+  if (convContact === c) renderConv();
+  toast(c.name + ': ' + (d.text.length > 80 ? d.text.slice(0, 80) + '…' : d.text), 4000);
+  systemNotify('Сообщение от ' + c.name, d.text.slice(0, 120));
+}
+function onAck(c, d) {
+  const ids = new Set(d.ids || []);
+  const list = loadHistory(c.id);
+  let changed = false;
+  for (const m of list) if (m.mine && ids.has(m.id) && m.status !== 'delivered') { m.status = 'delivered'; changed = true; }
+  if (!changed) return;
+  saveHistory(c.id, list);
+  if (convContact === c) renderConv();
+}
+
+function openConv(c) {
+  convContact = c;
+  c.unread = 0;
+  saveContacts();
+  show('conv');
+  renderConv();
+  if (!matchMedia('(pointer: coarse)').matches) $('convInput').focus();
+}
+function renderConvHead() {
+  const c = convContact;
+  if (!c) return;
+  $('convName').textContent = c.name;
+  $('convStatus').textContent = isOnline(c) ? 'в сети' : 'не в сети';
+}
+function renderConv() {
+  const c = convContact;
+  if (!c) return;
+  renderConvHead();
+  const log = $('convLog');
+  const list = loadHistory(c.id);
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'chat-empty';
+    p.textContent = 'Сообщения шифруются и идут через общественные реле. Если собеседник не в сети, они дождутся, пока он откроет звонилку. История хранится только в этом браузере.';
+    log.replaceChildren(p);
+  } else {
+    log.replaceChildren(...list.map(m => {
+      if (!m.sys) return buildMessage(m.text, m.mine, m.ts, m.mine ? (m.status === 'delivered' ? ' ✓✓' : ' ✓') : '');
+      const el = document.createElement('div');
+      el.className = 'msg-sys';
+      el.textContent = m.sys + ' · ' + timeOf(m.ts);
+      return el;
+    }));
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function lastLine(c) {
+  const list = loadHistory(c.id);
+  const m = list[list.length - 1];
+  return !m ? '' : m.sys || (m.mine ? 'Вы: ' : '') + m.text;
+}
+function renderRelay() {
+  const started = Relay.links.length > 0, on = Relay.online();
+  $('relayRow').hidden = !started;
+  $('relayDot').className = 'dot ' + (on ? 'ok' : 'bad');
+  $('relayText').textContent = on ? 'Связь с реле есть' : 'Нет связи с реле — сообщения уйдут, когда она появится';
+}
+function renderContacts() {
+  $('nameForm').hidden = !!Me.name;
+  $('contactList').replaceChildren(...contacts.map(c => {
+    const li = document.createElement('li');
+    li.className = 'contact';
+    const av = document.createElement('span');
+    av.className = 'avatar';
+    av.textContent = initial(c.name);
+    if (isOnline(c)) {
+      const dot = document.createElement('i');
+      dot.className = 'online';
+      av.append(dot);
+    }
+    const main = document.createElement('div');
+    main.className = 'c-main';
+    const name = document.createElement('b');
+    name.textContent = c.name;
+    const line = document.createElement('small');
+    line.textContent = lastLine(c) || (isOnline(c) ? 'в сети' : 'не в сети');
+    main.append(name, line);
+    li.append(av, main);
+    if (c.unread) {
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = c.unread > 99 ? '99+' : c.unread;
+      li.append(n);
+    }
+    const call = document.createElement('button');
+    call.className = 'icon-btn';
+    call.type = 'button';
+    call.title = 'Позвонить';
+    call.innerHTML = iconSvg('phone');
+    call.onclick = e => { e.stopPropagation(); callContact(c); };
+    li.append(call);
+    li.onclick = () => openConv(c);
+    return li;
+  }));
+  $('contactsEmpty').hidden = contacts.length > 0;
+  $('invitesWaiting').hidden = !invites.length;
+  $('invitesWaiting').textContent = 'Ждём, пока примут приглашение: ' + invites.length;
+  renderPush();
+  renderRelay();
+}
+
+// ---------- звонок контакту ----------
+// Та же прямая связь, что и в режиме «без сервера», только визитки браузеры передают сами через реле.
+
+const handledCalls = new Set();
+let ringing = null;
+
+async function callContact(c) {
+  if (S.active) return toast('Сначала завершите текущий звонок');
+  enterDirect('offerer');
+  S.contact = c;
+  S.callId = randomId(9);
+  setStatus('Звоним: ' + c.name + '…', { share: false });
+  const m = await ensureMedia();
+  if (!m || S.contact !== c) return;
+  refreshPreviews();
+  updateControls();
+  const pc = newDirectPc();
+  const call = directCall(pc);
+  call.attach(pc.createDataChannel('zvonilka'));
+  watchCall(call);
+  await pc.setLocalDescription(await pc.createOffer());
+  await iceGathered(pc);
+  if (S.call !== call) return;
+  S.awaiting = true;
+  // retained: если собеседник откроет звонилку в течение минуты, звонок его дождётся
+  await relaySend(c, 'call', { t: 'offer', callId: S.callId, sdp: pc.localDescription.sdp, ts: Date.now() }, true);
+  if (!isOnline(c)) {
+    Push.notify(c, 'call');
+    setStatus(c.name + ' сейчас не в сети. ' + (c.push ? 'Отправили уведомление — ждём ответа…' : 'Звонок дождётся, если собеседник откроет звонилку в течение минуты.'), { share: false });
+  }
+  later('ring', 60000, () => { if (S.call === call && !S.connected) endContactCall('Не отвечает.'); });
+}
+async function onCallSignal(c, d) {
+  if (d.t === 'cancel') {
+    if (ringing?.d.callId === d.callId) missedCall(ringing.c, d.callId);
+    return;
+  }
+  if (S.contact !== c || S.callId !== d.callId) return;
+  if (d.t === 'answer' && S.awaiting) {
+    const call = S.call;
+    try { await call.peerConnection.setRemoteDescription({ type: 'answer', sdp: d.sdp }); } catch (e) { return; }
+    S.awaiting = false;
+    cancel('ring');
+    relayClear(c, 'call');
+    setStatus('Соединяемся…', { share: false });
+    later('join', CONFIG.joinTimeout, () => {
+      if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую. Поможет TURN-сервер (настраивается в файле).');
+    });
+  } else if (d.t === 'decline') endContactCall('Звонок отклонён.');
+  else if (d.t === 'busy') endContactCall(c.name + ' сейчас разговаривает.');
+}
+function endContactCall(text) {
+  leaveCall(true);
+  $('endedText').textContent = text;
+}
+
+function onOffer(c, d, topic) {
+  if (!d.callId || handledCalls.has(d.callId)) return;
+  if (Date.now() - (d.ts || 0) > 60000) return Relay.publish(topic, EMPTY, true);   // давно закончившийся звонок
+  handledCalls.add(d.callId);
+  if (S.active) return relaySend(c, 'sig', { t: 'busy', callId: d.callId });
+  ringing = { c, d };
+  $('ringName').textContent = c.name;
+  $('ringAvatar').textContent = initial(c.name);
+  $('ring').hidden = false;
+  Ringtone.start();
+  systemNotify(c.name + ' звонит', 'Откройте звонилку, чтобы ответить', 'zvonilka-call');
+  later('ringIn', Math.max(1000, 60000 - (Date.now() - d.ts)), () => { if (ringing?.d === d) missedCall(c, d.callId); });
+}
+function stopRinging() {
+  ringing = null;
+  $('ring').hidden = true;
+  Ringtone.stop();
+  cancel('ringIn');
+}
+function missedCall(c, callId) {
+  stopRinging();
+  addHistory(c, { id: 'missed-' + callId, sys: 'Пропущенный звонок', ts: Date.now() });
+  c.unread = (c.unread || 0) + 1;
+  saveContacts();
+  renderContacts();
+  if (convContact === c) renderConv();
+  toast('Пропущенный звонок: ' + c.name, 5000);
+}
+function declineRing() {
+  if (!ringing) return;
+  const { c, d } = ringing;
+  stopRinging();
+  relaySend(c, 'sig', { t: 'decline', callId: d.callId });
+  relayClear(c, 'call');
+}
+async function acceptRing() {
+  if (!ringing) return;
+  const { c, d } = ringing;
+  stopRinging();
+  relayClear(c, 'call');
+  enterDirect('answerer');
+  S.contact = c;
+  S.callId = d.callId;
+  setStatus('Соединяемся…', { share: false });
+  const m = await ensureMedia();
+  if (!m || S.contact !== c) return;
+  refreshPreviews();
+  updateControls();
+  const pc = newDirectPc();
+  const call = directCall(pc);
+  watchCall(call);
+  try {
+    await pc.setRemoteDescription({ type: 'offer', sdp: d.sdp });
+    await pc.setLocalDescription(await pc.createAnswer());
+  } catch (e) {
+    return endContactCall('Не удалось принять звонок.');
+  }
+  await iceGathered(pc);
+  if (S.call !== call) return;
+  await relaySend(c, 'sig', { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp });
+  later('join', CONFIG.joinTimeout, () => {
+    if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую. Поможет TURN-сервер (настраивается в файле).');
+  });
+}
+
+// Гудки входящего звонка: два коротких сигнала каждые две секунды и вибрация.
+const Ringtone = {
+  timer: 0, ctx: null,
+  start() {
+    this.stop();
+    const beep = () => {
+      navigator.vibrate?.([300, 150, 300]);
+      try {
+        this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        this.ctx.resume().catch(() => {});
+        const t = this.ctx.currentTime;
+        for (const dt of [0, 0.35]) {
+          const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+          osc.frequency.value = 660;
+          gain.gain.setValueAtTime(0.0001, t + dt);
+          gain.gain.exponentialRampToValueAtTime(0.25, t + dt + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.3);
+          osc.connect(gain).connect(this.ctx.destination);
+          osc.start(t + dt);
+          osc.stop(t + dt + 0.32);
+        }
+      } catch (e) {}
+    };
+    beep();
+    this.timer = setInterval(beep, 2000);
+  },
+  stop() {
+    clearInterval(this.timer);
+    navigator.vibrate?.(0);
+  },
+};
+
+// ---------- уведомления ----------
+// Push будит телефон, когда звонилка закрыта. Отправляет его серверная функция (CONFIG.pushUrls):
+// браузер сам этого сделать не может.
+
+const Push = {
+  supported() {
+    return !!(CONFIG.pushUrls.length && CONFIG.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && window.Notification);
+  },
+  async enable() {
+    try {
+      if (await Notification.requestPermission() !== 'granted') {
+        toast('Уведомления запрещены — разрешите их в настройках сайта', 6000);
+        return renderPush();
+      }
+      const reg = await navigator.serviceWorker.register('sw.js');
+      await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription()
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uDecode(CONFIG.vapidPublicKey) });
+      Store.set('push', sub.toJSON());
+      contacts.forEach(sharePush);
+      toast('Уведомления о звонках включены');
+    } catch (e) {
+      console.warn('Push:', e);
+      toast('Не получилось включить уведомления: ' + e.message, 6000);
+    }
+    renderPush();
+  },
+  async refresh() {
+    if (!this.supported() || Notification.permission !== 'granted') return;
+    try {
+      const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+      if (sub) {
+        Store.set('push', sub.toJSON());
+        contacts.forEach(sharePush);
+      }
+    } catch (e) {}
+  },
+  async notify(c, kind) {
+    if (!c.push) return;
+    const body = JSON.stringify({ subscription: c.push, payload: { t: kind, name: Me.name } });
+    for (const url of CONFIG.pushUrls) {   // первый доступный адрес функции
+      try {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+        if (r.ok || r.status === 410) return;
+      } catch (e) {}
+    }
+  },
+};
+function sharePush(c) {
+  const sub = Store.get('push', null);
+  if (sub) relaySend(c, 'push/' + Me.id.slice(0, 8), { t: 'push', sub }, true);
+}
+function renderPush() {
+  const iosBrowser = /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone;
+  const enabled = window.Notification?.permission === 'granted' && !!Store.get('push', null);
+  const btn = $('pushBtn');
+  btn.hidden = enabled || !contacts.length || (!Push.supported() && !iosBrowser);
+  btn.disabled = !Push.supported();
+  btn.textContent = Push.supported() ? 'Включить уведомления о звонках'
+    : 'Уведомления на iPhone: «Поделиться» → «На экран „Домой“», затем откройте звонилку оттуда';
+}
+async function systemNotify(title, body, tag = 'zvonilka') {
+  if (document.visibilityState === 'visible' || window.Notification?.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) await reg.showNotification(title, { body, tag, icon: 'icon-192.png' });
+    else new Notification(title, { body, tag });
+  } catch (e) {}
+}
+
 // ---------- экраны ----------
 
 function route() {
+  const add = parseAddLink(location.hash);
+  if (add) {
+    if (S.active) leaveCall(false);
+    return openAddScreen(add);
+  }
   const direct = parseDirectLink(location.hash);
   if (direct?.kind === 'answer') {
     if (S.mode === 'direct' && S.awaiting && direct.sid === S.inviteSid) {
@@ -1406,7 +2194,9 @@ function route() {
 function goHome() {
   stopMedia();
   S.room = null;
+  convContact = null;
   show('home');
+  renderContacts();
 }
 function toHome() {
   history.pushState(null, '', pageUrl());
@@ -1455,19 +2245,27 @@ async function enterCall(showNote) {
 }
 
 function leaveCall(showEnded = true) {
+  const c = S.contact;
+  if (c && S.role === 'offerer' && !S.connected && S.callId) {   // положили трубку, пока шли гудки
+    relaySend(c, 'sig', { t: 'cancel', callId: S.callId });
+    relayClear(c, 'call');
+  }
+  S.contact = null;
+  S.lastContact = c;
   S.active = false;
   S.awaiting = false;
   Awake.off();
   resetChat();
-  cancel('retry', 'reconnect', 'join', 'drop', 'peerOpen');
+  cancel('retry', 'reconnect', 'join', 'drop', 'peerOpen', 'ring');
   dropCall();
   destroyPeer();
   stopMedia();
   const direct = S.mode === 'direct';
-  $('endedText').textContent = direct
-    ? 'Чтобы созвониться снова без сервера, создайте новое приглашение.'
+  $('endedText').textContent = c ? `Звонок с контактом «${c.name}» завершён.`
+    : direct ? 'Чтобы созвониться снова без сервера, создайте новое приглашение.'
     : 'Ссылка продолжает работать — можно вернуться в ту же комнату.';
-  $('rejoinBtn').textContent = direct ? 'Новое приглашение' : 'Вернуться в звонок';
+  $('rejoinBtn').textContent = c ? 'Позвонить снова' : direct ? 'Новое приглашение' : 'Вернуться в звонок';
+  $('homeBtn').textContent = c ? 'К контактам' : 'На главную';
   if (showEnded) show('ended');
 }
 
@@ -1529,12 +2327,17 @@ $('directBtn').onclick = startDirect;
 $('downloadBtn').onclick = downloadSelf;
 $('enterBtn').onclick = () => S.pendingInvite ? acceptInvite(S.pendingInvite) : enterCall(false);
 $('backBtn').onclick = toHome;
-$('rejoinBtn').onclick = () => S.mode === 'direct' ? startDirect() : enterCall(true);
+$('rejoinBtn').onclick = () => S.lastContact ? callContact(S.lastContact) : S.mode === 'direct' ? startDirect() : enterCall(true);
 $('homeBtn').onclick = toHome;
 $('copyBtn').onclick = shareLink;
 $('copyBtn').textContent = canShare ? 'Поделиться' : 'Копировать';
 $('linkBtn').onclick = shareLink;
 $('retryBtn').onclick = () => {
+  if (S.contact) {
+    const c = S.contact;
+    leaveCall(false);
+    return callContact(c);
+  }
   if (S.mode === 'direct') return startDirect();
   setStatus('Подключаемся…', { share: false });
   connect();
@@ -1563,12 +2366,71 @@ navigator.mediaDevices?.addEventListener?.('devicechange', countCameras);
 addEventListener('pointerdown', () => { if (Meter.ctx?.state === 'suspended') Meter.ctx.resume().catch(() => {}); }, { passive: true });
 // Экранная клавиатура на телефоне не должна закрывать поле чата.
 if (window.visualViewport) {
-  const fitKeyboard = () => $('chat').style.setProperty('--kb', Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop) + 'px');
+  const fitKeyboard = () => {
+    $('chat').style.setProperty('--kb', Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop) + 'px');
+    document.documentElement.style.setProperty('--vvh', visualViewport.height + 'px');
+  };
   visualViewport.addEventListener('resize', fitKeyboard);
   visualViewport.addEventListener('scroll', fitKeyboard);
 }
 resetChat();
 updateChatInput();
+
+// Контакты и переписка
+$('addContactBtn').onclick = createContactInvite;
+$('nameForm').onsubmit = e => {
+  e.preventDefault();
+  const name = $('nameInput').value.trim().slice(0, 40);
+  if (!name) return;
+  Me.name = name;
+  Store.set('me', Me);
+  renderContacts();
+};
+$('inviteCopyBtn').textContent = canShare ? 'Поделиться' : 'Копировать';
+$('inviteCopyBtn').onclick = async () => {
+  const url = $('inviteInput').value;
+  if (canShare) {
+    try { await navigator.share({ title: 'Звонилка', text: 'Добавь меня в контакты в Звонилке', url }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); }
+  catch (e) { $('inviteInput').select(); document.execCommand('copy'); }
+  toast('Ссылка скопирована');
+};
+$('pushBtn').onclick = () => Push.enable();
+$('addForm').onsubmit = e => { e.preventDefault(); acceptContactLink(); };
+$('addCancel').onclick = toHome;
+$('convBack').onclick = toHome;
+$('convCall').onclick = () => convContact && callContact(convContact);
+$('convForm').onsubmit = e => {
+  e.preventDefault();
+  const text = $('convInput').value.trim().slice(0, 2000);
+  if (!text || !convContact) return;
+  $('convInput').value = '';
+  const c = convContact;
+  sendText(c, text).then(() => { if (convContact === c) renderConv(); });
+  renderConv();
+};
+$('ringAccept').onclick = acceptRing;
+$('ringDecline').onclick = declineRing;
+// Вернулись во вкладку с открытой перепиской — пришедшее за это время уже прочитано.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !convContact?.unread || document.body.dataset.screen !== 'conv') return;
+  convContact.unread = 0;
+  saveContacts();
+});
+
+(async function startContacts() {
+  if (!window.crypto?.subtle || !window.WebSocket) { $('contactsCard').hidden = true; return; }
+  Relay.presenceTopic = await presenceTopicOf(Me.id);
+  if (contacts.length || invites.length) {
+    for (const c of contacts) await watchContact(c);
+    for (const inv of invites) await watchSecret(inv.secret);
+    Relay.start();
+  }
+  renderContacts();
+  Push.refresh();
+})();
 $('remoteVideo').onclick = e => e.currentTarget.classList.toggle('cover');
 $('unmuteBtn').onclick = () => { $('remoteVideo').play().catch(() => {}); $('unmuteBtn').hidden = true; };
 $('fileWarn').hidden = location.protocol !== 'file:';
