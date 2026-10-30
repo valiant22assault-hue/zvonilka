@@ -36,7 +36,7 @@
 
   .screen { position: relative; z-index: 1; display: none; min-height: 100%; }
   .screen.active { display: flex; }
-  .center { flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 32px 16px 120px; }
+  .center { flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: calc(32px + var(--bar, 0px)) 16px 120px; }
   .card { width: 100%; max-width: 440px; padding: 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
   .logo { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
   .logo svg { width: 26px; height: 26px; color: var(--accent); }
@@ -77,7 +77,8 @@
   #call.remote-on #remoteVideo { opacity: 1; }
   #remoteVideo.cover { object-fit: cover; }
   #localVideo { position: absolute; right: 16px; bottom: 100px; z-index: 2; width: clamp(96px, 24vw, 260px); max-height: 40vh; object-fit: cover; background: #1b1e25; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
-  #callInfo { position: absolute; top: calc(14px + env(safe-area-inset-top)); left: 16px; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--glass); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #minBtn { position: absolute; top: calc(10px + env(safe-area-inset-top)); left: 12px; z-index: 3; width: 44px; height: 44px; }
+  #callInfo { position: absolute; top: calc(16px + env(safe-area-inset-top)); left: 66px; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--glass); font-size: 13px; font-variant-numeric: tabular-nums; }
   #callInfo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
   #callInfo svg { width: 15px; height: 15px; color: #ffb4b6; }
   #remoteState { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; padding: 16px 16px 200px; pointer-events: none; }
@@ -116,7 +117,7 @@
   .badge { position: absolute; top: -2px; right: -2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
 
   /* чат */
-  #chat { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 16px; bottom: max(100px, calc(var(--kb, 0px) + 12px)); z-index: 5; display: flex; flex-direction: column; width: min(360px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden; }
+  #chat { position: absolute; top: calc(64px + env(safe-area-inset-top)); right: 16px; bottom: max(100px, calc(var(--kb, 0px) + 12px)); z-index: 5; display: flex; flex-direction: column; width: min(360px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden; }
   .chat-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
   .icon-btn { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--muted); }
   .icon-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
@@ -153,11 +154,25 @@
   .dot.ok { background: var(--ok); }
   .dot.bad { background: var(--danger); }
   #pushBtn { margin: 6px 0 0; }
+  .icon-btn.live { color: var(--ok); }
 
   /* переписка */
   #conv { justify-content: center; }
-  .conv { display: flex; flex-direction: column; width: min(640px, 100%); height: var(--vvh, 100dvh); background: #24272d; }
-  @media (min-width: 700px) { .conv { height: calc(var(--vvh, 100dvh) - 48px); margin: 24px 0; border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.28); overflow: hidden; } }
+  .conv { display: flex; flex-direction: column; width: min(640px, 100%); height: calc(var(--vvh, 100dvh) - var(--bar, 0px)); margin-top: var(--bar, 0px); background: #24272d; }
+  @media (min-width: 700px) { .conv { height: calc(var(--vvh, 100dvh) - 48px - var(--bar, 0px)); margin: calc(24px + var(--bar, 0px)) 0 24px; border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.28); overflow: hidden; } }
+
+  /* свёрнутый звонок: полоска сверху на остальных экранах */
+  body.bar { --bar: 62px; }
+  body.bar #toast { top: calc(70px + env(safe-area-inset-top)); }
+  .call-bar { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; z-index: 9; display: flex; align-items: center; gap: 6px; width: min(440px, calc(100% - 24px)); padding: 5px; background: #1f7a4d; border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.3); transform: translateX(-50%); }
+  .call-bar-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; color: #fff; font-size: 14px; text-align: left; }
+  .call-bar-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .call-bar-main span { flex: none; font-variant-numeric: tabular-nums; opacity: .85; }
+  .call-bar-main small { margin-left: auto; padding-left: 6px; font-size: 13px; opacity: .85; white-space: nowrap; }
+  .call-bar .ctl { width: 40px; height: 40px; }
+  .call-bar .ctl.js-mic { box-shadow: 0 0 0 calc(var(--lvl, 0) * 5px) rgba(255,255,255,.5); }
+  .live-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #8dffc0; animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
   .conv-head { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid var(--line); }
   .conv-head .ctl { width: 42px; height: 42px; }
   .msg-sys { align-self: center; color: var(--muted); font-size: 12px; }
@@ -269,10 +284,11 @@
 <section id="call" class="screen">
   <video id="remoteVideo" autoplay playsinline></video>
   <video id="localVideo" autoplay muted playsinline hidden></video>
+  <button id="minBtn" class="ctl" type="button" title="Свернуть: к контактам и переписке, звонок продолжится"><i data-i="back"></i></button>
   <div id="callInfo" hidden><span id="timer">00:00</span><span id="remoteMuted" title="У собеседника выключен микрофон" hidden><i data-i="micOff"></i></span></div>
   <div id="remoteState" hidden><div class="pill">Камера собеседника выключена</div></div>
   <div id="chat" hidden>
-    <div class="chat-head"><b>Чат</b><button id="chatClose" class="icon-btn" type="button" title="Закрыть"><i data-i="x"></i></button></div>
+    <div class="chat-head"><b id="chatTitle">Чат</b><button id="chatClose" class="icon-btn" type="button" title="Закрыть"><i data-i="x"></i></button></div>
     <div id="chatLog" class="chat-log"></div>
     <form id="chatForm" class="chat-form">
       <input id="chatInput" autocomplete="off" maxlength="2000" aria-label="Сообщение">
@@ -373,6 +389,14 @@
   </div>
 </div>
 
+<div id="callBar" class="call-bar" hidden>
+  <button id="callBarOpen" class="call-bar-main" type="button" title="Вернуться к звонку">
+    <i class="live-dot"></i><b id="callBarName">Звонок</b><span id="callBarTime"></span><small>Вернуться</small>
+  </button>
+  <button class="ctl js-mic" type="button"><i data-i="mic" class="i-on"></i><i data-i="micOff" class="i-off"></i></button>
+  <button id="callBarHang" class="ctl hang" type="button" title="Завершить"><i data-i="phone"></i></button>
+</div>
+
 <div id="toast" role="status" aria-live="polite"></div>
 
 <!-- Библиотека PeerJS встроена прямо в файл: внешние CDN в некоторых странах недоступны. -->
@@ -449,6 +473,7 @@ const S = {
   mediaReady: null, mediaGen: 0, camBusy: false, facing: 'user', camCount: 0,
   chatOpen: false, unread: 0,
   contact: null, callId: null, lastContact: null,   // звонок контакту через реле
+  chatWith: null, hs: null,   // контакт, с чьей перепиской связан чат звонка, и проверка, что собеседник — он
   screen: null, micOn: true,
   remote: { video: false, mic: true, known: false },
   timers: {}, tickTimer: null, startedAt: 0,
@@ -459,6 +484,7 @@ function cancel(...names) { names.forEach(n => clearTimeout(S.timers[n])); }
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
   document.body.dataset.screen = id;
+  updateCallBar();
 }
 function toast(text, ms = 2500) {
   const t = $('toast');
@@ -890,7 +916,9 @@ function sendState() {
 function onData(d) {
   if (!d || typeof d !== 'object') return;
   if (d.type === 'state') onState(d);
-  else if (d.type === 'chat' && typeof d.text === 'string') onChat(d.text.slice(0, 2000));
+  else if (d.type === 'chat' && typeof d.text === 'string') onChat(d);
+  else if (d.type === 'who' && typeof d.tag === 'string' && typeof d.nonce === 'string') onWho(d);
+  else if (d.type === 'proof' && typeof d.mac === 'string') onProof(d);
 }
 function onState(d) {
   S.remote = { video: !!d.video, mic: !!d.mic, known: true };
@@ -904,18 +932,20 @@ function updateRemoteView() {
 }
 
 // ---------- чат ----------
-// Сообщения идут по тому же прямому каналу и нигде не хранятся.
+// Сообщения идут по тому же прямому каналу. Если собеседник — ваш контакт, чат звонка — это переписка с ним
+// (S.chatWith): в нём видна история, а всё написанное остаётся в контактах. Иначе сообщения нигде не хранятся.
 
 const CHAT_EMPTY = 'Сообщения идут напрямую собеседнику и исчезнут после звонка.';
 
 function updateChatInput() {
-  const ok = !!S.dc?.open;
+  const ok = !!S.chatWith || !!S.dc?.open;   // контакту можно написать и через реле
   $('chatInput').disabled = !ok;
   $('chatInput').placeholder = ok ? 'Сообщение' : 'Чат заработает, когда собеседник подключится';
 }
 function updateBadge() {
-  $('chatBadge').hidden = !S.unread;
-  $('chatBadge').textContent = S.unread > 9 ? '9+' : S.unread;
+  const n = S.chatWith ? S.chatWith.unread || 0 : S.unread;
+  $('chatBadge').hidden = !n;
+  $('chatBadge').textContent = n > 9 ? '9+' : n;
 }
 function setChatOpen(open) {
   S.chatOpen = open;
@@ -923,6 +953,11 @@ function setChatOpen(open) {
   $('chatBtn').classList.toggle('is-on', open);
   if (!open) return;
   S.unread = 0;
+  if (S.chatWith?.unread) {
+    S.chatWith.unread = 0;
+    saveContacts();
+    renderContacts();
+  }
   updateBadge();
   $('chatLog').scrollTop = $('chatLog').scrollHeight;
   if (!matchMedia('(pointer: coarse)').matches) $('chatInput').focus();
@@ -966,16 +1001,25 @@ function sendChat() {
   const input = $('chatInput');
   const text = input.value.trim().slice(0, 2000);
   if (!text) return;
+  if (S.chatWith) {
+    input.value = '';
+    return sendText(S.chatWith, text);
+  }
   if (!S.dc?.open) return toast('Нет связи с собеседником — сообщение не отправлено');
   try { S.dc.send({ type: 'chat', text }); }
   catch (e) { return toast('Не удалось отправить сообщение'); }
   addMessage(text, true);
-  if (S.contact) addHistory(S.contact, { id: randomId(9), mine: true, text, ts: Date.now(), status: 'delivered' });
   input.value = '';
 }
-function onChat(text) {
+function onChat(d) {
+  const text = d.text.slice(0, 2000);
+  const c = S.chatWith;
+  if (c) {
+    const id = typeof d.id === 'string' && /^[\w-]{1,24}$/.test(d.id) ? d.id : randomId(9);
+    if (addHistory(c, { id, mine: false, text, ts: +d.ts || Date.now() })) onIncoming(c, text);
+    return;
+  }
   addMessage(text, false);
-  if (S.contact) addHistory(S.contact, { id: randomId(9), mine: false, text, ts: Date.now() });
   if (S.chatOpen) return;
   S.unread++;
   updateBadge();
@@ -985,11 +1029,25 @@ function resetChat() {
   setChatOpen(false);
   S.unread = 0;
   updateBadge();
+  updateChatInput();
+  $('chatTitle').textContent = 'Чат';
   const empty = document.createElement('p');
   empty.className = 'chat-empty';
   empty.textContent = CHAT_EMPTY;
   $('chatLog').replaceChildren(empty);
   $('chatInput').value = '';
+}
+function linkChat(c) {
+  S.chatWith = c;
+  renderCallChat();
+  updateChatInput();
+  updateBadge();
+}
+function renderCallChat() {
+  const c = S.chatWith;
+  if (!c) return;
+  $('chatTitle').textContent = c.name;
+  renderHistory($('chatLog'), loadHistory(c.id), 'Это ваша переписка с контактом: написанное в звонке останется в ней и после звонка.');
 }
 
 // ---------- соединение ----------
@@ -1054,6 +1112,7 @@ function connect() {
       if (S.dc && S.dc !== conn) try { S.dc.close(); } catch (e) {}
       S.dc = conn;
       sendState();
+      greet();
     });
     conn.on('data', d => { if (S.dc === conn) onData(d); });
     conn.on('close', () => { if (S.dc === conn) S.dc = null; });
@@ -1083,6 +1142,7 @@ function callHost(hostId) {
       if (S.call !== call) return dc.close();
       S.dc = dc;
       sendState();
+      greet();
     });
     dc.on('data', d => {
       if (d === 'busy') {
@@ -1179,9 +1239,21 @@ function tick() {
   const mm = String(Math.floor(s / 60) % 60).padStart(2, '0');
   const ss = String(s % 60).padStart(2, '0');
   $('timer').textContent = (h ? h + ':' : '') + mm + ':' + ss;
+  updateCallBar();
+}
+function spoken(ms) {
+  const s = Math.max(1, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+  return h ? `${h} ч ${m} мин` : m ? `${m} мин ${s % 60} с` : `${s} с`;
 }
 
 function dropCall() {
+  // Состоявшийся звонок с контактом — строчка в переписке.
+  if (S.connected && S.chatWith) {
+    addHistory(S.chatWith, { id: 'call-' + (S.callId || S.startedAt), sys: 'Звонок, ' + spoken(Date.now() - S.startedAt), ts: Date.now() });
+  }
+  // Звонок по ссылке: в комнату может зайти уже другой человек — его заново проверим при подключении.
+  if (S.chatWith && S.chatWith !== S.contact) { S.chatWith = null; resetChat(); }
+  S.hs = null;
   cancel('join', 'drop', 'stateFallback');
   clearInterval(S.tickTimer);
   const call = S.call, dc = S.dc;
@@ -1198,6 +1270,7 @@ function dropCall() {
   $('callInfo').hidden = true;
   updateRemoteView();
   updateChatInput();
+  updateCallBar();
 }
 
 function onRemoteGone() {
@@ -1313,7 +1386,7 @@ function directCall(pc) {
         send(obj) { channel.send(JSON.stringify(obj)); },
         close() { try { channel.close(); } catch (e) {} },
       };
-      channel.onopen = () => { if (S.call === call) { S.dc = dc; sendState(); } };
+      channel.onopen = () => { if (S.call === call) { S.dc = dc; sendState(); greet(); } };
       channel.onmessage = e => {
         let d;
         try { d = JSON.parse(e.data); } catch (err) { return; }
@@ -1343,7 +1416,7 @@ function enterDirect(role) {
   S.active = true;
   S.connected = false;
   S.awaiting = false;
-  S.contact = null;
+  S.contact = S.chatWith = null;
   Awake.on();
   cancel('retry', 'reconnect', 'peerOpen', 'join');
   dropCall();
@@ -1552,17 +1625,24 @@ function addHistory(c, entry) {
   if (entry.id && list.some(m => m.id === entry.id)) return false;
   list.push(entry);
   saveHistory(c.id, list);
+  historyChanged(c);
   return true;
 }
+// Одна и та же переписка может быть открыта и в контактах, и в чате звонка.
+function historyChanged(c) {
+  if (convContact === c) renderConv();
+  if (S.chatWith === c) renderCallChat();
+}
 
-// Топик и ключ шифрования пары выводятся из общего секрета.
+// Топик, ключ шифрования и ключ для подтверждения «я — это я» выводятся из общего секрета пары.
 const pairCache = new Map();
 function pairOf(secret) {
   if (!pairCache.has(secret)) pairCache.set(secret, (async () => {
     const raw = b64uDecode(secret);
     const topic = 'zvonilka/v1/' + b64uEncode((await sha256(raw, 'topic')).slice(0, 18));
     const key = await crypto.subtle.importKey('raw', await sha256(raw, 'key'), 'AES-GCM', false, ['encrypt', 'decrypt']);
-    return { topic, key };
+    const proof = await crypto.subtle.importKey('raw', await sha256(raw, 'proof'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return { topic, key, proof };
   })());
   return pairCache.get(secret);
 }
@@ -1819,12 +1899,59 @@ function onHello(inv, d, topic) {
   systemNotify('Новый контакт', c.name);
 }
 
+// ---------- звонок по ссылке с контактом ----------
+// Если собеседник по ссылке есть у вас в контактах, браузеры доказывают друг другу, что знают общий секрет пары,
+// и чат звонка становится перепиской с ним. Свой id каждый называет только в виде хеша со случайной добавкой,
+// так что чужой человек в звонке ничего о вас не узнает, а без секрета не подделает и доказательство.
+
+const whoTag = async (id, nonce) => b64uEncode((await sha256('zv-who|' + id + '|' + nonce)).slice(0, 16));
+async function proofOf(c, who, nonceA, nonceB) {
+  const { proof } = await pairOf(c.secret);
+  return b64uEncode(new Uint8Array(await crypto.subtle.sign('HMAC', proof, te.encode(['zv-proof', who, nonceA, nonceB].join('|')))));
+}
+async function greet() {
+  if (S.chatWith || !S.dc?.open || !contacts.length) return;
+  const hs = S.hs = { dc: S.dc, nonce: randomId(12), theirs: '', found: null };
+  const tag = await whoTag(Me.id, hs.nonce);
+  if (S.hs === hs && hs.dc.open) try { hs.dc.send({ type: 'who', tag, nonce: hs.nonce }); } catch (e) {}
+}
+function onWho(d) {
+  const hs = S.hs;
+  if (!hs || hs.found || S.chatWith) return;
+  hs.theirs = d.nonce.slice(0, 32);
+  hs.found = (async () => {
+    for (const c of contacts) if (await whoTag(c.id, hs.theirs) === d.tag) return c;
+    return null;
+  })();
+  hs.found.then(async c => {
+    if (!c) return;
+    const mac = await proofOf(c, Me.id, hs.theirs, hs.nonce);
+    if (S.hs === hs && hs.dc.open) try { hs.dc.send({ type: 'proof', mac }); } catch (e) {}
+  });
+}
+async function onProof(d) {
+  const hs = S.hs;
+  if (!hs?.found || S.chatWith) return;
+  const c = await hs.found;
+  if (!c || d.mac !== await proofOf(c, c.id, hs.nonce, hs.theirs) || S.hs !== hs) return;
+  linkChat(c);
+  toast('Собеседник — ваш контакт «' + c.name + '»: чат звонка связан с перепиской', 4000);
+}
+
 // ---------- переписка ----------
 
 let convContact = null;
 
 async function sendText(c, text) {
   const m = { id: randomId(9), text, ts: Date.now() };
+  // Во время звонка с этим контактом — по каналу звонка: быстрее и не зависит от реле.
+  if (S.chatWith === c && S.dc?.open) {
+    try {
+      S.dc.send({ type: 'chat', ...m });
+      addHistory(c, { ...m, mine: true, status: 'delivered' });
+      return;
+    } catch (e) {}
+  }
   addHistory(c, { ...m, mine: true, status: 'sent' });
   await relaySend(c, 'm/' + m.id, { t: 'msg', ...m }, true);   // лежит на реле, пока собеседник не заберёт
   if (!isOnline(c)) Push.notify(c, 'msg');
@@ -1832,14 +1959,22 @@ async function sendText(c, text) {
 function onContactMessage(c, d, topic) {
   Relay.publish(topic, EMPTY, true);                 // забрали — убираем с реле
   relaySend(c, 'sig', { t: 'ack', ids: [d.id] });   // «доставлено» для отправителя
-  if (typeof d.text !== 'string' || !addHistory(c, { id: d.id, mine: false, text: d.text.slice(0, 2000), ts: d.ts || Date.now() })) return;
-  if (convContact === c && document.body.dataset.screen === 'conv' && document.visibilityState === 'visible') return renderConv();
+  if (typeof d.text !== 'string') return;
+  const text = d.text.slice(0, 2000);
+  if (addHistory(c, { id: d.id, mine: false, text, ts: d.ts || Date.now() })) onIncoming(c, text);
+}
+// Новое сообщение от контакта. Если переписка с ним сейчас не перед глазами — счётчик и всплывающее уведомление.
+function onIncoming(c, text) {
+  const screen = document.body.dataset.screen;
+  const seen = document.visibilityState === 'visible'
+    && ((screen === 'conv' && convContact === c) || (screen === 'call' && S.chatOpen && S.chatWith === c));
+  if (seen) return;
   c.unread = (c.unread || 0) + 1;
   saveContacts();
   renderContacts();
-  if (convContact === c) renderConv();
-  toast(c.name + ': ' + (d.text.length > 80 ? d.text.slice(0, 80) + '…' : d.text), 4000);
-  systemNotify('Сообщение от ' + c.name, d.text.slice(0, 120));
+  updateBadge();
+  toast(c.name + ': ' + (text.length > 80 ? text.slice(0, 80) + '…' : text), 4000);
+  systemNotify('Сообщение от ' + c.name, text.slice(0, 120));
 }
 function onAck(c, d) {
   const ids = new Set(d.ids || []);
@@ -1848,13 +1983,14 @@ function onAck(c, d) {
   for (const m of list) if (m.mine && ids.has(m.id) && m.status !== 'delivered') { m.status = 'delivered'; changed = true; }
   if (!changed) return;
   saveHistory(c.id, list);
-  if (convContact === c) renderConv();
+  historyChanged(c);
 }
 
 function openConv(c) {
   convContact = c;
   c.unread = 0;
   saveContacts();
+  updateBadge();
   show('conv');
   renderConv();
   if (!matchMedia('(pointer: coarse)').matches) $('convInput').focus();
@@ -1862,19 +1998,22 @@ function openConv(c) {
 function renderConvHead() {
   const c = convContact;
   if (!c) return;
+  const inCall = S.active && S.chatWith === c;
   $('convName').textContent = c.name;
-  $('convStatus').textContent = isOnline(c) ? 'в сети' : 'не в сети';
+  $('convStatus').textContent = inCall ? 'идёт звонок' : isOnline(c) ? 'в сети' : 'не в сети';
+  $('convCall').title = inCall ? 'Вернуться к звонку' : 'Позвонить';
 }
 function renderConv() {
   const c = convContact;
   if (!c) return;
   renderConvHead();
-  const log = $('convLog');
-  const list = loadHistory(c.id);
+  renderHistory($('convLog'), loadHistory(c.id), 'Сообщения шифруются и идут через общественные реле. Если собеседник не в сети, они дождутся, пока он откроет звонилку. История хранится только в этом браузере.');
+}
+function renderHistory(log, list, emptyText) {
   if (!list.length) {
     const p = document.createElement('p');
     p.className = 'chat-empty';
-    p.textContent = 'Сообщения шифруются и идут через общественные реле. Если собеседник не в сети, они дождутся, пока он откроет звонилку. История хранится только в этом браузере.';
+    p.textContent = emptyText;
     log.replaceChildren(p);
   } else {
     log.replaceChildren(...list.map(m => {
@@ -1926,10 +2065,11 @@ function renderContacts() {
       n.textContent = c.unread > 99 ? '99+' : c.unread;
       li.append(n);
     }
+    const live = S.active && S.chatWith === c;
     const call = document.createElement('button');
-    call.className = 'icon-btn';
+    call.className = 'icon-btn' + (live ? ' live' : '');
     call.type = 'button';
-    call.title = 'Позвонить';
+    call.title = live ? 'Вернуться к звонку' : 'Позвонить';
     call.innerHTML = iconSvg('phone');
     call.onclick = e => { e.stopPropagation(); callContact(c); };
     li.append(call);
@@ -1949,11 +2089,15 @@ function renderContacts() {
 const handledCalls = new Set();
 let ringing = null;
 
-async function callContact(c) {
-  if (S.active) return toast('Сначала завершите текущий звонок');
-  enterDirect('offerer');
+function setCallContact(c, callId) {
   S.contact = c;
-  S.callId = randomId(9);
+  S.callId = callId;
+  linkChat(c);
+}
+async function callContact(c) {
+  if (S.active) return S.chatWith === c ? openCall() : toast('Сначала завершите текущий звонок');
+  enterDirect('offerer');
+  setCallContact(c, randomId(9));
   setStatus('Звоним: ' + c.name + '…', { share: false });
   const m = await ensureMedia();
   if (!m || S.contact !== c) return;
@@ -1995,8 +2139,7 @@ async function onCallSignal(c, d) {
   else if (d.t === 'busy') endContactCall(c.name + ' сейчас разговаривает.');
 }
 function endContactCall(text) {
-  leaveCall(true);
-  $('endedText').textContent = text;
+  leaveCall(true, text);
 }
 
 function onOffer(c, d, topic) {
@@ -2024,7 +2167,6 @@ function missedCall(c, callId) {
   c.unread = (c.unread || 0) + 1;
   saveContacts();
   renderContacts();
-  if (convContact === c) renderConv();
   toast('Пропущенный звонок: ' + c.name, 5000);
 }
 function declineRing() {
@@ -2040,8 +2182,7 @@ async function acceptRing() {
   stopRinging();
   relayClear(c, 'call');
   enterDirect('answerer');
-  S.contact = c;
-  S.callId = d.callId;
+  setCallContact(c, d.callId);
   setStatus('Соединяемся…', { share: false });
   const m = await ensureMedia();
   if (!m || S.contact !== c) return;
@@ -2199,9 +2340,33 @@ function goHome() {
   renderContacts();
 }
 function toHome() {
+  if (S.active) return minimizeCall();   // идёт звонок — не прерываем его
   history.pushState(null, '', pageUrl());
   route();
 }
+
+// Звонок можно свернуть: он идёт дальше, а на экране — контакты и переписка, сверху — полоска звонка.
+function minimizeCall() {
+  if (!S.active) return;
+  convContact = null;
+  show('home');
+  renderContacts();
+}
+function openCall() {
+  if (!S.active) return;
+  show('call');
+  const v = $('remoteVideo');
+  if (v.srcObject && v.paused) v.play().catch(() => { $('unmuteBtn').hidden = false; });
+}
+function updateCallBar() {
+  const on = S.active && document.body.dataset.screen !== 'call';
+  $('callBar').hidden = !on;
+  document.body.classList.toggle('bar', on);
+  if (!on) return;
+  $('callBarName').textContent = S.chatWith?.name || 'Звонок';
+  $('callBarTime').textContent = S.connected ? $('timer').textContent : 'ждём…';
+}
+const callBusy = () => S.active && (toast('Сначала завершите текущий звонок'), true);
 
 async function openLobby(room, invite = null) {
   S.room = room;
@@ -2244,29 +2409,35 @@ async function enterCall(showNote) {
   connect();
 }
 
-function leaveCall(showEnded = true) {
+function leaveCall(showEnded = true, text = '') {
   const c = S.contact;
+  const minimized = document.body.dataset.screen !== 'call';
   if (c && S.role === 'offerer' && !S.connected && S.callId) {   // положили трубку, пока шли гудки
     relaySend(c, 'sig', { t: 'cancel', callId: S.callId });
     relayClear(c, 'call');
   }
-  S.contact = null;
-  S.lastContact = c;
   S.active = false;
   S.awaiting = false;
   Awake.off();
-  resetChat();
   cancel('retry', 'reconnect', 'join', 'drop', 'peerOpen', 'ring');
-  dropCall();
+  dropCall();   // пока контакт известен — запишет звонок в переписку
   destroyPeer();
   stopMedia();
+  S.contact = S.chatWith = S.callId = null;
+  S.lastContact = c;
+  resetChat();
+  updateCallBar();
+  renderContacts();
+  renderConvHead();
   const direct = S.mode === 'direct';
-  $('endedText').textContent = c ? `Звонок с контактом «${c.name}» завершён.`
+  $('endedText').textContent = text || (c ? `Звонок с контактом «${c.name}» завершён.`
     : direct ? 'Чтобы созвониться снова без сервера, создайте новое приглашение.'
-    : 'Ссылка продолжает работать — можно вернуться в ту же комнату.';
+    : 'Ссылка продолжает работать — можно вернуться в ту же комнату.');
   $('rejoinBtn').textContent = c ? 'Позвонить снова' : direct ? 'Новое приглашение' : 'Вернуться в звонок';
   $('homeBtn').textContent = c ? 'К контактам' : 'На главную';
-  if (showEnded) show('ended');
+  if (!showEnded) return;
+  if (minimized) toast(text || 'Звонок завершён', 4000);   // свёрнутый звонок: остаёмся, где были
+  else show('ended');
 }
 
 async function copyLink() {
@@ -2313,17 +2484,19 @@ async function downloadSelf() {
 // ---------- кнопки ----------
 
 $('createBtn').onclick = () => {
+  if (callBusy()) return;
   S.room = newRoomId();
   history.pushState(null, '', '#' + S.room);
   enterCall(true);
 };
 $('joinForm').onsubmit = e => {
   e.preventDefault();
+  if (callBusy()) return;
   const room = cleanRoom($('joinInput').value);
   if (!room) return toast('Не похоже на ссылку или код звонка');
   location.hash = room;
 };
-$('directBtn').onclick = startDirect;
+$('directBtn').onclick = () => callBusy() || startDirect();
 $('downloadBtn').onclick = downloadSelf;
 $('enterBtn').onclick = () => S.pendingInvite ? acceptInvite(S.pendingInvite) : enterCall(false);
 $('backBtn').onclick = toHome;
@@ -2352,6 +2525,9 @@ $('handoffCopyBtn').onclick = async () => {
 };
 $('handoffHomeBtn').onclick = toHome;
 $('hangBtn').onclick = () => leaveCall(true);
+$('minBtn').onclick = minimizeCall;
+$('callBarOpen').onclick = openCall;
+$('callBarHang').onclick = () => leaveCall(true);
 $('screenBtn').onclick = toggleScreen;
 $('screenBtn').hidden = !navigator.mediaDevices?.getDisplayMedia;
 document.querySelectorAll('.js-mic').forEach(b => b.onclick = toggleMic);
@@ -2407,17 +2583,19 @@ $('convForm').onsubmit = e => {
   const text = $('convInput').value.trim().slice(0, 2000);
   if (!text || !convContact) return;
   $('convInput').value = '';
-  const c = convContact;
-  sendText(c, text).then(() => { if (convContact === c) renderConv(); });
-  renderConv();
+  sendText(convContact, text);
 };
 $('ringAccept').onclick = acceptRing;
 $('ringDecline').onclick = declineRing;
-// Вернулись во вкладку с открытой перепиской — пришедшее за это время уже прочитано.
+// Вернулись во вкладку с открытой перепиской (или чатом звонка) — пришедшее за это время уже прочитано.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !convContact?.unread || document.body.dataset.screen !== 'conv') return;
-  convContact.unread = 0;
+  if (document.visibilityState !== 'visible') return;
+  const screen = document.body.dataset.screen;
+  const c = screen === 'conv' ? convContact : screen === 'call' && S.chatOpen ? S.chatWith : null;
+  if (!c?.unread) return;
+  c.unread = 0;
   saveContacts();
+  updateBadge();
 });
 
 (async function startContacts() {
