@@ -311,6 +311,7 @@ function toast(text, ms = 2500) {
 
 // ---------- песец ----------
 // Бегает вдоль низа экрана вприпрыжку, иногда останавливается и переваливается с лапы на лапу.
+// Боится курсора (на телефоне — пальца): подпрыгивает от испуга и удирает.
 
 (function runFox() {
   const box = document.querySelector('#foxStage .fox');
@@ -342,23 +343,70 @@ function toast(text, ms = 2500) {
     wob = 0;
     setPose(Math.random() < 0.25 ? 'back' : 'front');
   }
+
+  // Где курсор или палец. Курсор пугает, пока он в окне, палец — пока касается экрана.
+  let threat = null, flee = 0, dash = 0, bigHop = false, rest = false;
+  const track = e => { threat = { x: e.clientX, y: e.clientY }; };
+  addEventListener('pointermove', track, { passive: true });
+  addEventListener('pointerdown', track, { passive: true });
+  addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') threat = null; }, { passive: true });
+  addEventListener('pointercancel', () => { threat = null; });
+  addEventListener('blur', () => { threat = null; });
+  document.documentElement.addEventListener('mouseleave', () => { threat = null; });
+
+  function scare(away) {
+    if (flee <= 0 && dash <= 0) { phase = 0; bigHop = true; }   // подпрыгивает от испуга
+    mode = 'run';
+    dir = away;
+    flee = 1.2;
+    rest = false;
+  }
+
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000 || 0);
     last = now;
+    const fast = flee > 0 || dash > 0;
+    if (dash > 0) dash -= dt;
+    let tdx = null;   // насколько курсор правее песца
+    if (threat) {
+      const r = box.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      tdx = threat.x - cx;
+      if (dash <= 0 && Math.hypot(tdx, (threat.y - cy) * 1.3) < 150 * scale) scare(tdx < 0 ? 1 : -1);
+    }
     let lift = 0, rot = 0, sx = 1, sy = 1, dx = 0, flip = 1;
     if (mode === 'run') {
       setPose('side');
       flip = dir;
-      x += dir * 78 * scale * dt;
-      phase += dt * Math.PI * 1.8;                 // 1.8 прыжка в секунду
+      x += dir * (fast ? 230 : 78) * scale * dt;
+      x = Math.min(Math.max(x, w / 2), innerWidth - w / 2);
+      const hopsBefore = Math.floor(phase / Math.PI);
+      phase += dt * Math.PI * (fast ? 3 : 1.8);    // прыжков в секунду: 1.8 спокойно, 3 — когда удирает
+      if (Math.floor(phase / Math.PI) !== hopsBefore) bigHop = false;
       const p = phase % Math.PI;
       const hop = Math.sin(p);
-      lift = hop * 16 * scale;
-      rot = -dir * 6 * Math.cos(p);                // нос вверх на взлёте, вниз при приземлении
+      lift = hop * (fast ? 24 : 16) * scale * (bigHop ? 1.8 : 1);
+      rot = -dir * (fast ? 9 : 6) * Math.cos(p);   // нос вверх на взлёте, вниз при приземлении
       if (hop < 0.25) { const k = 1 - hop / 0.25; sx = 1 + 0.06 * k; sy = 1 - 0.09 * k; }
       else { sx = 0.98; sy = 1.03; }
       const atEdge = (dir > 0 && x > innerWidth - w / 2 - 12) || (dir < 0 && x < w / 2 + 12);
-      if (atEdge) { dir = -dir; stop(0.8); }
+      if (fast) {
+        if (atEdge && dash <= 0) {
+          if (tdx !== null && Math.sign(tdx) === -dir && Math.abs(tdx) < 300 * scale) {
+            // Зажали в угол — разворачивается и большими прыжками проскакивает мимо курсора.
+            dir = -dir;
+            dash = (Math.abs(tdx) + 160 * scale) / (230 * scale);
+            phase = 0;
+            bigHop = true;
+          } else {
+            flee = 0;   // курсор далеко — у края можно и отдышаться
+          }
+        }
+        flee = Math.max(0, flee - dt);
+        if (flee <= 0 && dash <= 0) rest = true;
+      } else if (rest) {
+        if (hop < 0.2) { rest = false; stop(rand(1.2, 2.2)); }   // отбежал — переводит дух
+      } else if (atEdge) { dir = -dir; stop(0.8); }
       else if ((left -= dt) <= 0 && hop < 0.15) stop(rand(1.8, 3.4));
     } else {
       wob += dt;
@@ -379,8 +427,9 @@ function toast(text, ms = 2500) {
     }
     box.style.transform = `translate(${x - w / 2 + dx}px, ${-lift}px)`;
     body.style.transform = `rotate(${rot}deg) scale(${flip * sx}, ${sy})`;
-    shadow.style.transform = `translateY(${lift}px) scale(${1 - lift / (16 * scale) * 0.35})`;
-    shadow.style.opacity = 0.35 - lift / (16 * scale) * 0.15;
+    const air = Math.min(1, lift / (30 * scale));
+    shadow.style.transform = `translateY(${lift}px) scale(${1 - air * 0.4})`;
+    shadow.style.opacity = 0.35 - air * 0.2;
     requestAnimationFrame(frame);
   }
 
