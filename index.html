@@ -41,7 +41,7 @@
   .sub { color: var(--muted); margin: 0 0 24px; }
   .warn { background: #3a2a12; border: 1px solid #5c4318; color: #f5d9a8; border-radius: 12px; padding: 10px 12px; font-size: 13px; margin: 0 0 16px; }
 
-  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 16px; border-radius: 12px; font-weight: 600; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 16px; border-radius: 12px; font-weight: 600; text-decoration: none; color: inherit; }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
   .btn-ghost { background: rgba(255,255,255,.08); }
@@ -254,7 +254,7 @@
       </div>
     </div>
     <form id="nameForm" class="join" hidden>
-      <input id="nameInput" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
+      <input id="nameInput" placeholder="Как к вам будут обращаться?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
       <button class="btn btn-primary" type="submit">Сохранить</button>
     </form>
     <div id="inviteBox" hidden>
@@ -370,11 +370,13 @@
   <div class="card">
     <h2 id="addTitle">Вас приглашают в контакты</h2>
     <p id="addSub" class="sub">После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.</p>
+    <p id="addNameHint" class="hint" style="margin:0 0 8px"></p>
     <form id="addForm" class="join">
-      <input id="addName" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
-      <button class="btn btn-primary" type="submit">Добавить</button>
+      <input id="addName" placeholder="Ваше имя" maxlength="40" autocomplete="name" aria-label="Ваше имя">
+      <button id="addSubmit" class="btn btn-primary" type="submit">Добавить</button>
     </form>
     <a id="openInApp" class="btn btn-ghost" style="margin-top:12px" hidden>У меня приложение — открыть в нём</a>
+    <p id="addBrowserHint" class="hint" style="margin:16px 0 10px" hidden>Приложения нет? Добавьте здесь — контакт сохранится только в этом браузере.</p>
     <a id="openInDesk" class="btn btn-ghost" style="margin-top:12px" hidden>У меня программа Звонилка — открыть в ней</a>
     <p id="openInDeskHint" class="hint" hidden>Браузер спросит, открыть ли приложение, — нажмите «Открыть». В программе нажмите «Добавить».</p>
     <button id="addCancel" class="btn btn-link" type="button">Отмена</button>
@@ -2171,7 +2173,7 @@ const INVITE_TTL = 12 * 3600000, INVITE_GRACE = 7 * 86400000;
 async function createContactInvite() {
   if (!Me.name) {
     $('nameInput').focus();
-    return toast('Сначала напишите, как вас зовут');
+    return toast('Сначала напишите, как к вам будут обращаться контакты');
   }
   const inv = { secret: randomId(32), created: Date.now(), expires: Date.now() + INVITE_TTL, me: Me.id };
   invites.push(inv);
@@ -2218,10 +2220,19 @@ function openAddScreen(add) {
   $('addSub').textContent = add.expired
     ? 'Ссылка-приглашение действует 12 часов. Попросите прислать новую.'
     : 'После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.';
-  $('addForm').hidden = add.expired;
+  $('addForm').hidden = $('addNameHint').hidden = add.expired;
+  $('addNameHint').textContent = 'Как ' + add.name + ' будет к вам обращаться?';
   $('addName').value = Me.name;
-  // Ссылку открыли в браузере телефона, а контакты нужны в приложении — передаём приглашение туда.
-  $('openInApp').hidden = App || !onAndroid || add.expired;
+  // Ссылку открыли в браузере телефона (мессенджеры открывают ссылки там), а контакты нужны в приложении —
+  // главная кнопка передаёт приглашение туда; добавить в браузере можно ниже, если приложения нет.
+  const appFirst = !App && onAndroid && !add.expired;
+  $('openInApp').hidden = !appFirst;
+  $('openInApp').textContent = 'Открыть в приложении Звонилка';
+  $('openInApp').className = 'btn ' + (appFirst ? 'btn-primary' : 'btn-ghost');
+  $('openInApp').style.marginTop = appFirst ? '0' : '12px';
+  $('addSubmit').className = 'btn ' + (appFirst ? 'btn-ghost' : 'btn-primary');
+  $('addBrowserHint').hidden = !appFirst;
+  if (appFirst) $('addNameHint').before($('openInApp'), $('addBrowserHint'));
   // Если приложения нет, браузер просто останется на этой странице.
   $('openInApp').href = 'intent://add/' + add.raw + '#Intent;scheme=zvonilka;package=io.github.zvonilka.app;S.browser_fallback_url='
     + encodeURIComponent(location.href) + ';end';

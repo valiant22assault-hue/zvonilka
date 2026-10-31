@@ -43,7 +43,9 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="zvonilka" android:host="add" />
             </intent-filter>
-            <intent-filter>
+            <!-- Ссылки на сайт (приглашения из мессенджеров) — сразу в приложение: сайт подтверждает это файлом
+                 /.well-known/assetlinks.json в корне valiant22assault-hue.github.io. -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

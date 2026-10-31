@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // zvonilka://add/<приглашение> — кнопка «Открыть в приложении» на сайте; https-ссылки — если разрешены в настройках.
+    // zvonilka://add/<приглашение> — кнопка «Открыть в приложении» на сайте; https-ссылки на сайт — сразу (см. AndroidManifest).
     private static String hashFrom(Intent i) {
         Uri u = i.getData();
         if (!Intent.ACTION_VIEW.equals(i.getAction()) || u == null) return null;
