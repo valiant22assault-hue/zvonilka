@@ -59,6 +59,12 @@
   .join input:focus { border-color: var(--accent); }
   .join .btn, .linkbox .btn { width: auto; }
   .foot { max-width: 440px; margin: 0; text-align: center; color: rgba(255,255,255,.78); font-size: 13px; }
+  .in-app .foot { display: none; }
+  .sound-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 4px; border-top: 1px solid var(--line); text-align: left; cursor: pointer; }
+  .card-head + .sound-row { border-top: 0; }
+  .sound-row span { flex: none; }
+  .sound-row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-weight: 500; }
+  .sound-row input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
   .foot .btn-link { margin: 0 auto 4px; color: #fff; }
 
   /* лобби */
@@ -155,6 +161,12 @@
   .dot.bad { background: var(--danger); }
   #pushBtn { margin: 6px 0 0; }
   .icon-btn.live { color: var(--ok); }
+  .head-btns { display: flex; align-items: center; gap: 6px; }
+  #editContactsBtn { width: 38px; height: 38px; }
+  #editContactsBtn.is-on { background: var(--ok); color: #fff; }
+  .c-edit { flex: 1; min-width: 0; padding: 9px 12px; background: rgba(0,0,0,.25); border: 1px solid var(--line); border-radius: 10px; outline: none; }
+  .c-edit:focus { border-color: var(--accent); }
+  .credit { margin: 4px 0 0; color: rgba(255,255,255,.55); font-size: 12px; text-align: center; }
 
   /* переписка */
   #conv { justify-content: center; }
@@ -223,23 +235,13 @@
 </div>
 
 <section id="home" class="screen center">
-  <div class="card">
-    <h1 class="logo"><i data-i="phone"></i>Звонилка</h1>
-    <p class="sub">Создайте звонок и отправьте ссылку собеседнику. Звук и видео идут напрямую между браузерами.</p>
-    <p id="fileWarn" class="warn" hidden>Страница открыта как файл с диска — ссылка сработает только на этом компьютере. Чтобы звонить другим, выложите файл на хостинг с HTTPS.</p>
-    <button id="createBtn" class="btn btn-primary" type="button">Создать звонок</button>
-    <button id="directBtn" class="btn btn-ghost" type="button">Звонок без сервера</button>
-    <p class="hint">Без сервера — если обычный звонок не соединяется (например, из России): вы с собеседником обмениваетесь двумя ссылками.</p>
-    <div class="divider">или</div>
-    <form id="joinForm" class="join">
-      <input id="joinInput" placeholder="Ссылка или код комнаты" autocomplete="off" aria-label="Ссылка или код комнаты">
-      <button class="btn btn-ghost" type="submit">Войти</button>
-    </form>
-  </div>
   <div id="contactsCard" class="card">
     <div class="card-head">
       <h2>Контакты</h2>
-      <button id="addContactBtn" class="btn btn-ghost btn-sm" type="button"><i data-i="plus"></i>Добавить</button>
+      <div class="head-btns">
+        <button id="editContactsBtn" class="icon-btn" type="button" title="Изменить имена" hidden><i data-i="pencil"></i></button>
+        <button id="addContactBtn" class="btn btn-ghost btn-sm" type="button"><i data-i="plus"></i>Добавить</button>
+      </div>
     </div>
     <form id="nameForm" class="join" hidden>
       <input id="nameInput" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
@@ -253,15 +255,36 @@
       </div>
     </div>
     <ul id="contactList" class="contacts"></ul>
+    <p id="editHint" class="hint" hidden>Новые имена видны только вам. Своё имя собеседники увидят в следующих приглашениях и звонках.</p>
     <p id="contactsEmpty" class="hint">Пока пусто. Нажмите «Добавить» и отправьте ссылку — человек появится здесь, и вы сможете писать и звонить друг другу без пересылки ссылок.</p>
     <p id="invitesWaiting" class="hint" hidden></p>
     <button id="pushBtn" class="btn btn-link" type="button" hidden>Включить уведомления о звонках</button>
     <div id="relayRow" class="relay-row" hidden><span id="relayDot" class="dot"></span><span id="relayText"></span></div>
   </div>
+  <div class="card">
+    <h1 class="logo"><i data-i="phone"></i>Простой звонок</h1>
+    <p class="sub">Создайте звонок и отправьте ссылку собеседнику.</p>
+    <p id="fileWarn" class="warn" hidden>Страница открыта как файл с диска — ссылка сработает только на этом компьютере. Чтобы звонить другим, выложите файл на хостинг с HTTPS.</p>
+    <button id="createBtn" class="btn btn-primary" type="button">Создать звонок</button>
+    <button id="directBtn" class="btn btn-ghost" type="button">Звонок без сервера</button>
+    <p class="hint">Звонок без сервера поможет, если обычный звонок не срабатывает из-за блокировок серверов-посредников. При звонке без сервера соединение идёт напрямую.</p>
+    <div class="divider">или</div>
+    <form id="joinForm" class="join">
+      <input id="joinInput" placeholder="Ссылка или код комнаты" autocomplete="off" aria-label="Ссылка или код комнаты">
+      <button class="btn btn-ghost" type="submit">Войти</button>
+    </form>
+  </div>
+  <div id="soundCard" class="card" hidden>
+    <div class="card-head"><h2>Звуки</h2></div>
+    <button id="soundCallBtn" class="sound-row" type="button"><span>Мелодия звонка</span><b id="soundCall"></b></button>
+    <button id="soundMsgBtn" class="sound-row" type="button"><span>Звук сообщений</span><b id="soundMsg"></b></button>
+    <label class="sound-row"><span>Вибрация</span><input id="vibrateBox" type="checkbox"></label>
+  </div>
   <p class="foot">
     <button id="downloadBtn" class="btn btn-link" type="button"><i data-i="download"></i>Скачать свою звонилку</button>
     Один файл: выложите его на любой хостинг, и у вас будет своя звонилка со своими ссылками.
   </p>
+  <p class="credit">by Mikhail Zhuravlev</p>
 </section>
 
 <section id="lobby" class="screen center">
@@ -321,6 +344,7 @@
   <div class="controls">
     <button class="ctl js-mic" type="button"><i data-i="mic" class="i-on"></i><i data-i="micOff" class="i-off"></i></button>
     <button class="ctl js-cam" type="button"><i data-i="cam" class="i-on"></i><i data-i="camOff" class="i-off"></i></button>
+    <button id="speakerBtn" class="ctl" type="button" title="Громкая связь" hidden><i data-i="speaker"></i></button>
     <button id="flipBtn" class="ctl" type="button" title="Повернуть камеру" hidden><i data-i="flip"></i></button>
     <button id="screenBtn" class="ctl" type="button"><i data-i="screen"></i></button>
     <button id="chatBtn" class="ctl" type="button" title="Чат"><i data-i="chat"></i><span id="chatBadge" class="badge" hidden></span></button>
@@ -337,6 +361,7 @@
       <input id="addName" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
       <button class="btn btn-primary" type="submit">Добавить</button>
     </form>
+    <a id="openInApp" class="btn btn-ghost" style="margin-top:12px" hidden>У меня приложение — открыть в нём</a>
     <button id="addCancel" class="btn btn-link" type="button">Отмена</button>
   </div>
 </section>
@@ -458,12 +483,19 @@ const ICONS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  speaker: '<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>',
 };
 const iconSvg = (name, cls = '') =>
   `<svg class="${cls}" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 document.querySelectorAll('i[data-i]').forEach(el => { el.outerHTML = iconSvg(el.dataset.i, el.className); });
 
 const $ = id => document.getElementById(id);
+// Звонилка внутри приложения для Android: оно само держит связь в фоне, звонит как телефон и показывает уведомления.
+const App = window.ZvonilkaApp || null;
+if (App) document.documentElement.classList.add('in-app');
+const onAndroid = /Android/i.test(navigator.userAgent);
 const S = {
   mode: 'server',   // 'server' — через сигнальный сервер, 'direct' — обмен ссылками без сервера
   room: null, peer: null, call: null, dc: null, role: null,
@@ -474,7 +506,7 @@ const S = {
   chatOpen: false, unread: 0,
   contact: null, callId: null, lastContact: null,   // звонок контакту через реле
   chatWith: null, hs: null,   // контакт, с чьей перепиской связан чат звонка, и проверка, что собеседник — он
-  screen: null, micOn: true,
+  screen: null, micOn: true, speaker: false,
   remote: { video: false, mic: true, known: false },
   timers: {}, tickTimer: null, startedAt: 0,
 };
@@ -739,6 +771,21 @@ function updateControls() {
   $('flipBtn').disabled = S.camBusy;
   $('screenBtn').classList.toggle('is-on', !!S.screen);
   $('screenBtn').title = S.screen ? 'Остановить показ экрана' : 'Показать экран';
+  $('speakerBtn').hidden = !App?.callAudio;
+  $('speakerBtn').classList.toggle('is-on', S.speaker);
+  $('speakerBtn').title = S.speaker ? 'Выключить громкую связь' : 'Громкая связь';
+}
+
+// Приложение: громкая связь или динамик у уха, как в обычном телефоне.
+// У уха и без видео экран гаснет от датчика приближения, чтобы щека не нажимала кнопки.
+function callAudio() {
+  if (!S.active || !App?.callAudio) return;
+  try { App.callAudio(S.speaker, !!ownVideo() || (S.connected && S.remote.video)); } catch (e) {}
+}
+function toggleSpeaker() {
+  S.speaker = !S.speaker;
+  updateControls();
+  callAudio();
 }
 
 // Меняет видео, которое уходит собеседнику, без пересоздания соединения.
@@ -755,6 +802,7 @@ function videoChanged() {
   refreshPreviews();
   updateControls();
   sendState();
+  callAudio();
 }
 
 function toggleMic() {
@@ -923,6 +971,7 @@ function onData(d) {
 function onState(d) {
   S.remote = { video: !!d.video, mic: !!d.mic, known: true };
   updateRemoteView();
+  callAudio();
 }
 function updateRemoteView() {
   const live = S.connected;
@@ -1023,6 +1072,7 @@ function onChat(d) {
   if (S.chatOpen) return;
   S.unread++;
   updateBadge();
+  App?.ping?.();
   toast('Собеседник: ' + (text.length > 80 ? text.slice(0, 80) + '…' : text), 4000);
 }
 function resetChat() {
@@ -1042,6 +1092,7 @@ function linkChat(c) {
   renderCallChat();
   updateChatInput();
   updateBadge();
+  updateCallBar();
 }
 function renderCallChat() {
   const c = S.chatWith;
@@ -1228,6 +1279,10 @@ function onConnected() {
   S.tickTimer = setInterval(tick, 1000);
   sendState();
   updateRemoteView();
+  Ringback.stop();
+  // Браузер сам выбирает, куда выводить звук разговора, когда тот начинается, — потом ставим выбранное.
+  callAudio();
+  later('audioRoute', 1500, callAudio);
   // Если собеседник не прислал своё состояние (старая версия звонилки), просто показываем его видео.
   later('stateFallback', 2500, () => {
     if (S.connected && !S.remote.known) { S.remote.video = true; updateRemoteView(); }
@@ -1254,7 +1309,8 @@ function dropCall() {
   // Звонок по ссылке: в комнату может зайти уже другой человек — его заново проверим при подключении.
   if (S.chatWith && S.chatWith !== S.contact) { S.chatWith = null; resetChat(); }
   S.hs = null;
-  cancel('join', 'drop', 'stateFallback');
+  Ringback.stop();
+  cancel('join', 'drop', 'stateFallback', 'audioRoute');
   clearInterval(S.tickTimer);
   const call = S.call, dc = S.dc;
   S.call = null;
@@ -1548,6 +1604,7 @@ const Awake = {
   want: false, lock: null, pending: false, warned: false,
   async on() {
     this.want = true;
+    if (App) return;   // в приложении экран держит само приложение
     if (!('wakeLock' in navigator)) {
       if (!this.warned && matchMedia('(pointer: coarse)').matches) {
         this.warned = true;
@@ -1616,7 +1673,7 @@ const Me = Store.get('me', null) || { id: randomId(), name: '' };
 Store.set('me', Me);
 let contacts = Store.get('contacts', []);   // { id, name, secret, unread, push }
 let invites = Store.get('invites', []);     // { secret, created } — ещё не принятые приглашения
-const saveContacts = () => Store.set('contacts', contacts);
+const saveContacts = () => { Store.set('contacts', contacts); syncApp(); };
 const saveInvites = () => Store.set('invites', invites);
 const loadHistory = id => Store.get('history.' + id, []);
 const saveHistory = (id, list) => Store.set('history.' + id, list.slice(-1000));
@@ -1761,11 +1818,12 @@ const Relay = {
     this.links = CONFIG.relays.map((url, i) => new MqttLink(url, i));
     setInterval(() => this.announce(), 60000);
     setInterval(renderContacts, 30000);
-    addEventListener('pagehide', () => this.links.forEach(l =>
+    // В приложении «не в сети» не ставим: даже без окна его служба остаётся на связи и сама отмечает присутствие.
+    if (!App) addEventListener('pagehide', () => this.links.forEach(l =>
       l.raw(MqttLink.packet(0x31, concatBytes(MqttLink.str(this.presenceTopic), te.encode('0:' + Date.now()))))));
     this.changed();
   },
-  will() { return this.presenceTopic && { topic: this.presenceTopic, payload: '0:' + Date.now() }; },
+  will() { return !App && this.presenceTopic && { topic: this.presenceTopic, payload: '0:' + Date.now() }; },
   connected(link) {
     link.publish(this.presenceTopic, te.encode('1:' + Date.now()), true);
     this.changed();
@@ -1852,7 +1910,7 @@ function parseAddLink(hash) {
   if (!m) return null;
   let name = '';
   try { name = td.decode(b64uDecode(m[3])).trim().slice(0, 40); } catch (e) {}
-  return { id: m[1], secret: m[2], name: name || 'Контакт' };
+  return { id: m[1], secret: m[2], name: name || 'Контакт', raw: m[0].slice(5) };
 }
 
 let pendingAdd = null;
@@ -1860,6 +1918,11 @@ function openAddScreen(add) {
   pendingAdd = add;
   $('addTitle').textContent = add.name + ' приглашает вас в контакты';
   $('addName').value = Me.name;
+  // Ссылку открыли в браузере телефона, а контакты нужны в приложении — передаём приглашение туда.
+  $('openInApp').hidden = App || !onAndroid;
+  // Если приложения нет, браузер просто останется на этой странице.
+  $('openInApp').href = 'intent://add/' + add.raw + '#Intent;scheme=zvonilka;package=io.github.zvonilka.app;S.browser_fallback_url='
+    + encodeURIComponent(location.href) + ';end';
   show('addScreen');
 }
 async function acceptContactLink() {
@@ -1973,6 +2036,7 @@ function onIncoming(c, text) {
   saveContacts();
   renderContacts();
   updateBadge();
+  App?.ping?.();   // приложение на экране — короткий звук сообщения
   toast(c.name + ': ' + (text.length > 80 ? text.slice(0, 80) + '…' : text), 4000);
   systemNotify('Сообщение от ' + c.name, text.slice(0, 120));
 }
@@ -2038,8 +2102,74 @@ function renderRelay() {
   $('relayDot').className = 'dot ' + (on ? 'ok' : 'bad');
   $('relayText').textContent = on ? 'Связь с реле есть' : 'Нет связи с реле — сообщения уйдут, когда она появится';
 }
+// Карандаш: имена контактов становятся полями ввода, там же можно поменять своё имя.
+let editingNames = false;
+function setEditNames(on) {
+  if (!on) {   // «Готово» — сохраняем и то, что не подтвердили клавишей Enter
+    $('contactList').querySelectorAll('.c-edit').forEach(i => i.dispatchEvent(new Event('change')));
+    saveMyName($('nameInput').value);
+  }
+  editingNames = on;
+  const btn = $('editContactsBtn');
+  btn.classList.toggle('is-on', on);
+  btn.innerHTML = iconSvg(on ? 'check' : 'pencil');
+  btn.title = on ? 'Готово' : 'Изменить имена';
+  if (on) $('nameInput').value = Me.name;
+  renderContacts();
+}
+function saveMyName(value) {
+  const name = String(value || '').trim().slice(0, 40);
+  if (!name || name === Me.name) return false;
+  Me.name = name;
+  Store.set('me', Me);
+  syncApp();
+  return true;
+}
+function editRow(c) {
+  const li = document.createElement('li');
+  li.className = 'contact';
+  const av = document.createElement('span');
+  av.className = 'avatar';
+  av.textContent = initial(c.name);
+  const input = document.createElement('input');
+  input.className = 'c-edit';
+  input.value = c.name;
+  input.maxLength = 40;
+  input.setAttribute('aria-label', 'Имя контакта');
+  input.onchange = () => {
+    const name = input.value.trim().slice(0, 40);
+    if (!name) { input.value = c.name; return; }
+    if (name === c.name) return;
+    c.name = name;
+    av.textContent = initial(name);
+    saveContacts();
+  };
+  input.onkeydown = e => { if (e.key === 'Enter') input.blur(); };
+  li.append(av, input);
+  return li;
+}
+
 function renderContacts() {
-  $('nameForm').hidden = !!Me.name;
+  $('nameForm').hidden = !!Me.name && !editingNames;
+  $('editContactsBtn').hidden = !Me.name && !contacts.length;
+  $('editHint').hidden = !editingNames;
+  if (editingNames) {
+    // Не перерисовываем поля, пока в них печатают (список обновляется и сам, раз в полминуты).
+    if ($('contactList').dataset.mode !== 'edit') {
+      $('contactList').dataset.mode = 'edit';
+      $('contactList').replaceChildren(...contacts.map(editRow));
+    }
+  } else {
+    $('contactList').dataset.mode = '';
+    renderContactList();
+  }
+  $('contactsEmpty').hidden = contacts.length > 0;
+  $('invitesWaiting').hidden = !invites.length;
+  $('invitesWaiting').textContent = 'Ждём, пока примут приглашение: ' + invites.length;
+  renderPush();
+  renderRelay();
+}
+function renderContactList() {
   $('contactList').replaceChildren(...contacts.map(c => {
     const li = document.createElement('li');
     li.className = 'contact';
@@ -2076,11 +2206,6 @@ function renderContacts() {
     li.onclick = () => openConv(c);
     return li;
   }));
-  $('contactsEmpty').hidden = contacts.length > 0;
-  $('invitesWaiting').hidden = !invites.length;
-  $('invitesWaiting').textContent = 'Ждём, пока примут приглашение: ' + invites.length;
-  renderPush();
-  renderRelay();
 }
 
 // ---------- звонок контакту ----------
@@ -2088,6 +2213,7 @@ function renderContacts() {
 
 const handledCalls = new Set();
 let ringing = null;
+let pendingAccept = null;   // приложение: «Ответить» нажали раньше, чем звонок дошёл до страницы
 
 function setCallContact(c, callId) {
   S.contact = c;
@@ -2111,6 +2237,7 @@ async function callContact(c) {
   await iceGathered(pc);
   if (S.call !== call) return;
   S.awaiting = true;
+  Ringback.start();
   // retained: если собеседник откроет звонилку в течение минуты, звонок его дождётся
   await relaySend(c, 'call', { t: 'offer', callId: S.callId, sdp: pc.localDescription.sdp, ts: Date.now() }, true);
   if (!isOnline(c)) {
@@ -2129,13 +2256,15 @@ async function onCallSignal(c, d) {
     const call = S.call;
     try { await call.peerConnection.setRemoteDescription({ type: 'answer', sdp: d.sdp }); } catch (e) { return; }
     S.awaiting = false;
+    Ringback.stop();
     cancel('ring');
     relayClear(c, 'call');
     setStatus('Соединяемся…', { share: false });
     later('join', CONFIG.joinTimeout, () => {
       if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую. Поможет TURN-сервер (настраивается в файле).');
     });
-  } else if (d.t === 'decline') endContactCall('Звонок отклонён.');
+  } else if (d.t === 'ringing' && S.awaiting) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
+  else if (d.t === 'decline') endContactCall('Звонок отклонён.');
   else if (d.t === 'busy') endContactCall(c.name + ' сейчас разговаривает.');
 }
 function endContactCall(text) {
@@ -2154,8 +2283,11 @@ function onOffer(c, d, topic) {
   Ringtone.start();
   systemNotify(c.name + ' звонит', 'Откройте звонилку, чтобы ответить', 'zvonilka-call');
   later('ringIn', Math.max(1000, 60000 - (Date.now() - d.ts)), () => { if (ringing?.d === d) missedCall(c, d.callId); });
+  relaySend(c, 'sig', { t: 'ringing', callId: d.callId });   // звонящий увидит «телефон звонит»
+  if (pendingAccept === d.callId) { pendingAccept = null; acceptRing(); }
 }
 function stopRinging() {
+  if (ringing) App?.ringDone(ringing.d.callId);   // телефон перестаёт звонить
   ringing = null;
   $('ring').hidden = true;
   Ringtone.stop();
@@ -2205,11 +2337,41 @@ async function acceptRing() {
   });
 }
 
+// Длинные гудки, пока вызываем собеседника: 425 Гц, секунда звука и четыре тишины — как в телефоне.
+const Ringback = {
+  timer: 0, ctx: null,
+  start() {
+    this.stop();
+    const beep = () => {
+      try {
+        this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        this.ctx.resume().catch(() => {});
+        const t = this.ctx.currentTime, osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.frequency.value = 425;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.03);
+        gain.gain.setValueAtTime(0.12, t + 0.97);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+        osc.connect(gain).connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 1.02);
+      } catch (e) {}
+    };
+    beep();
+    this.timer = setInterval(beep, 5000);
+  },
+  stop() {
+    clearInterval(this.timer);
+    this.timer = 0;
+  },
+};
+
 // Гудки входящего звонка: два коротких сигнала каждые две секунды и вибрация.
 const Ringtone = {
   timer: 0, ctx: null,
   start() {
     this.stop();
+    if (App) return;   // в приложении звонит сам телефон — мелодией и вибрацией
     const beep = () => {
       navigator.vibrate?.([300, 150, 300]);
       try {
@@ -2293,7 +2455,7 @@ function renderPush() {
   const iosBrowser = /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone;
   const enabled = window.Notification?.permission === 'granted' && !!Store.get('push', null);
   const btn = $('pushBtn');
-  btn.hidden = enabled || !contacts.length || (!Push.supported() && !iosBrowser);
+  btn.hidden = !!App || enabled || !contacts.length || (!Push.supported() && !iosBrowser);   // приложение уведомляет само
   btn.disabled = !Push.supported();
   btn.textContent = Push.supported() ? 'Включить уведомления о звонках'
     : 'Уведомления на iPhone: «Поделиться» → «На экран „Домой“», затем откройте звонилку оттуда';
@@ -2359,6 +2521,7 @@ function openCall() {
   if (v.srcObject && v.paused) v.play().catch(() => { $('unmuteBtn').hidden = false; });
 }
 function updateCallBar() {
+  tellApp();
   const on = S.active && document.body.dataset.screen !== 'call';
   $('callBar').hidden = !on;
   document.body.classList.toggle('bar', on);
@@ -2367,6 +2530,57 @@ function updateCallBar() {
   $('callBarTime').textContent = S.connected ? $('timer').textContent : 'ждём…';
 }
 const callBusy = () => S.active && (toast('Сначала завершите текущий звонок'), true);
+
+// ---------- приложение для Android ----------
+// Служба приложения слушает реле в фоне: ей нужны id, контакты с секретами и адреса реле.
+// Во время звонка приложение не даёт экрану гаснуть и держит микрофон, даже когда свёрнуто.
+
+function syncApp() {
+  if (!App) return;
+  try {
+    App.sync(JSON.stringify({ me: { id: Me.id, name: Me.name }, relays: CONFIG.relays,
+      contacts: contacts.map(c => ({ id: c.id, name: c.name, secret: c.secret })) }));
+  } catch (e) {}
+}
+let appCall = '';
+function tellApp() {
+  const name = S.chatWith?.name || 'Звонок';
+  const st = S.active ? name : '';
+  if (!App || st === appCall) return;
+  appCall = st;
+  try { App.inCall(S.active, name); } catch (e) {}
+}
+// Мелодия звонка и звук сообщений — выбираются системным списком мелодий телефона.
+function renderSounds() {
+  if (!App?.sounds) return;
+  let s;
+  try { s = JSON.parse(App.sounds()); } catch (e) { return; }
+  $('soundCard').hidden = false;
+  $('soundCall').textContent = s.call || '';
+  $('soundMsg').textContent = s.msg || '';
+  $('vibrateBox').checked = s.vibrate !== false;
+}
+// Команды от приложения: кнопки уведомлений и «Назад».
+window.zvApp = {
+  soundsChanged: renderSounds,
+  accept(callId) {
+    if (ringing?.d.callId === callId) acceptRing();
+    else pendingAccept = callId;
+  },
+  decline(callId) { if (ringing?.d.callId === callId) declineRing(); },
+  hangup() { if (S.active) leaveCall(true); },
+  openContact(id) {
+    const c = contacts.find(x => x.id === id);
+    if (c) openConv(c);
+  },
+  back() {
+    const screen = document.body.dataset.screen;
+    if (!$('ring').hidden || screen === 'home') return false;
+    if (screen === 'call') minimizeCall();
+    else toHome();
+    return true;
+  },
+};
 
 async function openLobby(room, invite = null) {
   S.room = room;
@@ -2425,6 +2639,8 @@ function leaveCall(showEnded = true, text = '') {
   stopMedia();
   S.contact = S.chatWith = S.callId = null;
   S.lastContact = c;
+  S.speaker = false;
+  updateControls();
   resetChat();
   updateCallBar();
   renderContacts();
@@ -2450,8 +2666,9 @@ async function copyLink() {
   }
   toast('Ссылка скопирована');
 }
-const canShare = !!navigator.share && matchMedia('(pointer: coarse)').matches;
+const canShare = !!App || (!!navigator.share && matchMedia('(pointer: coarse)').matches);
 async function shareLink() {
+  if (App) return App.share('', $('linkInput').value || roomLink(S.room));
   if (canShare) {
     try { await navigator.share({ title: 'Звонилка', url: $('linkInput').value || roomLink(S.room) }); return; }
     catch (e) { if (e.name === 'AbortError') return; }
@@ -2492,6 +2709,8 @@ $('createBtn').onclick = () => {
 $('joinForm').onsubmit = e => {
   e.preventDefault();
   if (callBusy()) return;
+  const add = parseAddLink($('joinInput').value);   // вставили ссылку-приглашение в контакты
+  if (add) { $('joinInput').value = ''; return openAddScreen(add); }
   const room = cleanRoom($('joinInput').value);
   if (!room) return toast('Не похоже на ссылку или код звонка');
   location.hash = room;
@@ -2525,6 +2744,11 @@ $('handoffCopyBtn').onclick = async () => {
 };
 $('handoffHomeBtn').onclick = toHome;
 $('hangBtn').onclick = () => leaveCall(true);
+$('speakerBtn').onclick = toggleSpeaker;
+$('soundCallBtn').onclick = () => App?.pickSound('call');
+$('soundMsgBtn').onclick = () => App?.pickSound('msg');
+$('vibrateBox').onchange = e => App?.setVibrate(e.target.checked);
+renderSounds();
 $('minBtn').onclick = minimizeCall;
 $('callBarOpen').onclick = openCall;
 $('callBarHang').onclick = () => leaveCall(true);
@@ -2556,15 +2780,14 @@ updateChatInput();
 $('addContactBtn').onclick = createContactInvite;
 $('nameForm').onsubmit = e => {
   e.preventDefault();
-  const name = $('nameInput').value.trim().slice(0, 40);
-  if (!name) return;
-  Me.name = name;
-  Store.set('me', Me);
+  if (saveMyName($('nameInput').value) && editingNames) toast('Имя сохранено');
   renderContacts();
 };
+$('editContactsBtn').onclick = () => setEditNames(!editingNames);
 $('inviteCopyBtn').textContent = canShare ? 'Поделиться' : 'Копировать';
 $('inviteCopyBtn').onclick = async () => {
   const url = $('inviteInput').value;
+  if (App) return App.share('Добавь меня в контакты в Звонилке', url);
   if (canShare) {
     try { await navigator.share({ title: 'Звонилка', text: 'Добавь меня в контакты в Звонилке', url }); return; }
     catch (e) { if (e.name === 'AbortError') return; }
@@ -2600,6 +2823,7 @@ document.addEventListener('visibilitychange', () => {
 
 (async function startContacts() {
   if (!window.crypto?.subtle || !window.WebSocket) { $('contactsCard').hidden = true; return; }
+  pendingAccept = App?.takeAccept() || null;   // приложение открыли кнопкой «Ответить»
   Relay.presenceTopic = await presenceTopicOf(Me.id);
   if (contacts.length || invites.length) {
     for (const c of contacts) await watchContact(c);
@@ -2607,6 +2831,7 @@ document.addEventListener('visibilitychange', () => {
     Relay.start();
   }
   renderContacts();
+  syncApp();
   Push.refresh();
 })();
 $('remoteVideo').onclick = e => e.currentTarget.classList.toggle('cover');

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Как установить Звонилку</title>
+<style>
+  @page { size: A5; margin: 12mm 11mm 13mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #1d2024; font: 12.5pt/1.45 "Segoe UI", Roboto, Arial, sans-serif; }
+  h1 { margin: 0 0 2mm; font-size: 21pt; line-height: 1.15; }
+  .lead { margin: 0 0 5mm; color: #4a505a; font-size: 11.5pt; }
+  h2 { display: flex; align-items: center; gap: 3mm; margin: 6mm 0 2.5mm; font-size: 15pt; line-height: 1.2; break-after: avoid; }
+  h2 .n { flex: none; display: inline-grid; place-items: center; width: 9mm; height: 9mm; border-radius: 50%; background: #3a83f7; color: #fff; font-size: 13pt; }
+  ol, ul { margin: 0; padding-left: 6mm; }
+  li { margin: 0 0 1.6mm; break-inside: avoid; }
+  li::marker { color: #3a83f7; font-weight: 700; }
+  /* так выглядят надписи на экране телефона, на которые нужно нажать */
+  .b { display: inline-block; padding: 0 1.6mm; border-radius: 1.6mm; background: #e6eefc; color: #1550b8; font-weight: 700; white-space: nowrap; }
+  .q { font-style: italic; color: #4a505a; }
+  .note { margin: 2.5mm 0 0; padding: 2.5mm 3.5mm; border-left: 1.2mm solid #3a83f7; border-radius: 1.5mm; background: #f2f5fa; font-size: 11pt; break-inside: avoid; }
+  .warn { border-left-color: #e0952a; background: #fdf5e8; }
+  .brand { margin: 2mm 0 1mm; font-weight: 700; }
+  .page { break-before: page; }
+  .ok { color: #1f7a4d; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Как установить Звонилку</h1>
+<p class="lead">Звонилка — приложение для звонков и переписки с родными. Звонит как обычный телефон. Установить нужно один раз, это займёт 5 минут.</p>
+
+<h2><span class="n">1</span>Откройте файл</h2>
+<ul>
+  <li>Найдите присланный файл <b>zvonilka.apk</b> (в Telegram, WhatsApp или на Google Диске) и нажмите на него.</li>
+  <li><b>Google Диск:</b> нажмите <span class="b">⋮</span> рядом с файлом → <span class="b">Скачать</span>. Когда скачается, нажмите на уведомление <span class="q">«Скачивание завершено»</span>.</li>
+  <li><b>Если пришёл архив</b> (файл .zip): нажмите на него → <span class="b">Извлечь</span> (или <span class="b">Распаковать</span>), затем нажмите на <b>zvonilka.apk</b>.</li>
+</ul>
+
+<h2><span class="n">2</span>Разрешите установку</h2>
+<p>Телефон напишет: <span class="q">«В целях безопасности установка неизвестных приложений из этого источника запрещена»</span>. Это нормально.</p>
+<ol>
+  <li>Нажмите <span class="b">Настройки</span>.</li>
+  <li>Включите переключатель <span class="b">Разрешить установку из этого источника</span> (на Samsung — <span class="b">Разрешить из этого источника</span>, на Xiaomi — <span class="b">Разрешить</span>).</li>
+  <li>Вернитесь назад — стрелкой <span class="b">←</span> или жестом.</li>
+</ol>
+<p class="note">Разрешение даётся только тому приложению, из которого вы открыли файл (например, Telegram). После установки его можно выключить обратно.</p>
+
+<h2><span class="n">3</span>Установите</h2>
+<ol>
+  <li>Нажмите <span class="b">Установить</span>.</li>
+  <li>Если появится предупреждение <span class="q">«Неизвестное приложение»</span> или <span class="q">«Play Защита»</span> — нажмите <span class="b">Подробнее</span> → <span class="b">Всё равно установить</span>. Так телефон предупреждает о любом приложении не из Play Маркета.</li>
+  <li>Если спросит, отправить ли приложение на проверку, — можно нажать <span class="b">Не отправлять</span>.</li>
+  <li>Нажмите <span class="b">Открыть</span>.</li>
+</ol>
+<p class="note warn">Если на выбор будут только <span class="b">Проверить приложение</span> и <span class="b">Не устанавливать</span> — нажмите <span class="b">Не устанавливать</span>. Затем снова нажмите на файл <b>zvonilka.apk</b> и начните установку заново.</p>
+
+<h2><span class="n">4</span>Первый запуск: всё разрешите</h2>
+<p>Звонилка задаст несколько вопросов. На все отвечайте согласием:</p>
+<ul>
+  <li><span class="q">Отправлять уведомления?</span> → <span class="b">Разрешить</span></li>
+  <li><span class="q">Записывать аудио?</span> → <span class="b">При использовании приложения</span></li>
+  <li><span class="q">Звонки, когда телефон спит</span> → <span class="b">Разрешить</span>, затем ещё раз <span class="b">Разрешить</span> в окне телефона</li>
+  <li><span class="q">Входящие звонки на весь экран</span> (бывает на новых телефонах) → <span class="b">Открыть настройки</span> → включите переключатель → назад</li>
+  <li>Когда впервые включите камеру: <span class="q">Снимать фото и видео?</span> → <span class="b">При использовании приложения</span></li>
+</ul>
+<p>Затем в карточке <b>«Контакты»</b> напишите своё имя и нажмите <span class="b">Сохранить</span>.</p>
+
+<h2><span class="n">5</span>Чтобы звонки доходили всегда</h2>
+<p>Некоторые телефоны сами «усыпляют» приложения. Сделайте это один раз:</p>
+<p class="brand">Xiaomi, Redmi, POCO</p>
+<ul>
+  <li>Настройки → Приложения → Все приложения → <b>Звонилка</b> → включите <span class="b">Автозапуск</span>.</li>
+  <li>Там же: <span class="b">Контроль активности</span> (или <span class="b">Батарея</span>) → <span class="b">Нет ограничений</span>.</li>
+  <li>В списке недавних приложений потяните карточку Звонилки вниз (или нажмите на неё долго) и закрепите <span class="b">🔒 замочком</span>.</li>
+</ul>
+<p class="brand">Samsung</p>
+<ul><li>Настройки → Приложения → <b>Звонилка</b> → <span class="b">Батарея</span> → <span class="b">Без ограничений</span>.</li></ul>
+<p class="brand">Huawei, Honor</p>
+<ul><li>Настройки → Батарея → <span class="b">Запуск приложений</span> → <b>Звонилка</b> → выключите <span class="b">Управлять автоматически</span> и включите все три переключателя.</li></ul>
+<p class="note">Всё работает, если в шторке уведомлений (проведите пальцем сверху вниз) видна строка <span class="ok">«Звонилка на связи»</span>. Не закрывайте Звонилку смахиванием из списка недавних приложений.</p>
+
+<h2><span class="n">6</span>Добавьте родных в контакты</h2>
+<p>Вам пришлют ссылку-приглашение. Нажмите на неё — откроется браузер с надписью <span class="q">«… приглашает вас в контакты»</span>.</p>
+<ol>
+  <li>Нажмите <span class="b">У меня приложение — открыть в нём</span>.</li>
+  <li>Откроется Звонилка. Проверьте имя и нажмите <span class="b">Добавить</span>.</li>
+</ol>
+<p class="note">Если такой кнопки нет: нажмите на ссылку долго → <span class="b">Копировать</span>. Откройте Звонилку, нажмите на поле <span class="b">Ссылка или код комнаты</span>, вставьте ссылку и нажмите <span class="b">Войти</span>, затем <span class="b">Добавить</span>.</p>
+
+<h2><span class="n">7</span>Как пользоваться</h2>
+<ul>
+  <li><b>Позвонить:</b> в «Контактах» нажмите трубку рядом с именем. Пока собеседник не ответил, слышны гудки.</li>
+  <li><b>Вам звонят:</b> экран загорится, как при обычном звонке. Зелёная кнопка — <b>ответить</b>, красная — <b>отклонить</b>.</li>
+  <li><b>Громкая связь:</b> во время разговора кнопка с динамиком 🔊.</li>
+  <li><b>Написать:</b> нажмите на имя в «Контактах» — откроется переписка.</li>
+  <li><b>Изменить имя контакта:</b> в «Контактах» нажмите карандаш <span class="b">✎</span> рядом с <span class="b">Добавить</span>, исправьте имя и нажмите зелёную галочку <span class="b">✓</span>.</li>
+  <li><b>Мелодия звонка и звук сообщений:</b> внизу главного экрана, в карточке <b>«Звуки»</b>.</li>
+</ul>
+
+<h2><span class="n">8</span>Если пришлют новую версию</h2>
+<p>Установите её так же, как в шагах 1–3, <b>не удаляя старую</b>. Контакты и переписка сохранятся.</p>
+<p class="note warn">Не удаляйте Звонилку: вместе с ней удалятся контакты и переписка, и родных придётся добавлять заново.</p>
+
+</body>
+</html>
