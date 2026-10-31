@@ -370,15 +370,15 @@
   <div class="card">
     <h2 id="addTitle">Вас приглашают в контакты</h2>
     <p id="addSub" class="sub">После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.</p>
+    <a id="openInApp" class="btn btn-primary" hidden>Открыть в приложении Звонилка</a>
+    <a id="openInDesk" class="btn btn-primary" hidden>Открыть в программе Звонилка</a>
+    <p id="openInDeskHint" class="hint" hidden>Браузер спросит, открыть ли приложение, — нажмите «Открыть». В программе нажмите «Добавить».</p>
+    <p id="addBrowserHint" class="hint" style="margin:16px 0 10px" hidden></p>
     <p id="addNameHint" class="hint" style="margin:0 0 8px"></p>
     <form id="addForm" class="join">
       <input id="addName" placeholder="Ваше имя" maxlength="40" autocomplete="name" aria-label="Ваше имя">
       <button id="addSubmit" class="btn btn-primary" type="submit">Добавить</button>
     </form>
-    <a id="openInApp" class="btn btn-ghost" style="margin-top:12px" hidden>У меня приложение — открыть в нём</a>
-    <p id="addBrowserHint" class="hint" style="margin:16px 0 10px" hidden>Приложения нет? Добавьте здесь — контакт сохранится только в этом браузере.</p>
-    <a id="openInDesk" class="btn btn-ghost" style="margin-top:12px" hidden>У меня программа Звонилка — открыть в ней</a>
-    <p id="openInDeskHint" class="hint" hidden>Браузер спросит, открыть ли приложение, — нажмите «Открыть». В программе нажмите «Добавить».</p>
     <button id="addCancel" class="btn btn-link" type="button">Отмена</button>
   </div>
 </section>
@@ -2236,21 +2236,19 @@ function openAddScreen(add) {
   $('addForm').hidden = $('addNameHint').hidden = add.expired;
   $('addNameHint').textContent = 'Как ' + add.name + ' будет к вам обращаться?';
   $('addName').value = Me.name;
-  // Ссылку открыли в браузере телефона (мессенджеры открывают ссылки там), а контакты нужны в приложении —
+  // Ссылку открыли в браузере (мессенджеры открывают ссылки там), а контакты нужны в приложении —
   // главная кнопка передаёт приглашение туда; добавить в браузере можно ниже, если приложения нет.
-  const appFirst = !App && onAndroid && !add.expired;
-  $('openInApp').hidden = !appFirst;
-  $('openInApp').textContent = 'Открыть в приложении Звонилка';
-  $('openInApp').className = 'btn ' + (appFirst ? 'btn-primary' : 'btn-ghost');
-  $('openInApp').style.marginTop = appFirst ? '0' : '12px';
-  $('addSubmit').className = 'btn ' + (appFirst ? 'btn-ghost' : 'btn-primary');
-  $('addBrowserHint').hidden = !appFirst;
-  if (appFirst) $('addNameHint').before($('openInApp'), $('addBrowserHint'));
+  // На компьютере так же с программой для Windows, пока браузер с ней не связан: иначе контакт в неё не попадёт.
+  const toApp = !App && onAndroid && !add.expired;
+  const toDesk = !App && !Desk && onWindows && !Me.sync && !add.expired;
+  $('openInApp').hidden = !toApp;
+  $('openInDesk').hidden = $('openInDeskHint').hidden = !toDesk;
+  $('addBrowserHint').hidden = !toApp && !toDesk;
+  $('addBrowserHint').textContent = (toApp ? 'Приложения' : 'Программы') + ' нет? Добавьте здесь — контакт сохранится только в этом браузере.';
+  $('addSubmit').className = 'btn ' + (toApp || toDesk ? 'btn-ghost' : 'btn-primary');
   // Если приложения нет, браузер просто останется на этой странице.
   $('openInApp').href = 'intent://add/' + add.raw + '#Intent;scheme=zvonilka;package=io.github.zvonilka.app;S.browser_fallback_url='
     + encodeURIComponent(location.href) + ';end';
-  // То же на компьютере: программа «Звонилка» для Windows открывает ссылки zvonilka:.
-  $('openInDesk').hidden = $('openInDeskHint').hidden = !!App || !!Desk || !onWindows || add.expired;
   $('openInDesk').href = 'zvonilka:add/' + add.raw;
   show('addScreen');
 }
@@ -2881,11 +2879,13 @@ function setCallContact(c, callId) {
 }
 async function callContact(c) {
   if (S.active) return S.chatWith === c ? openCall() : toast('Сначала завершите текущий звонок');
+  if (ringing?.c === c) return acceptRing();   // он как раз звонит нам — просто отвечаем
   enterDirect('offerer');
-  setCallContact(c, randomId(9));
+  const callId = randomId(9);
+  setCallContact(c, callId);
   setStatus('Звоним: ' + c.name + '…', { share: false });
   const m = await ensureMedia();
-  if (!m || S.contact !== c) return;
+  if (!m || S.callId !== callId) return;   // пока включался микрофон, мы уже ответили на его встречный звонок
   refreshPreviews();
   updateControls();
   const pc = newDirectPc();
@@ -2943,6 +2943,16 @@ function onOffer(c, d, topic) {
   if (!d.callId || handledCalls.has(d.callId)) return;
   if (Date.now() - (d.ts || 0) > 60000) return Relay.publish(topic, EMPTY, true);   // давно закончившийся звонок
   handledCalls.add(d.callId);
+  // Звоним друг другу одновременно: оба хотят поговорить, «занято» тут ни к чему. Остаётся вызов с меньшим
+  // номером — кто его начал, продолжает звонить, а другой отменяет свой и сразу отвечает.
+  if (S.active && S.contact === c && S.role === 'offerer' && !S.connected) {
+    if (d.callId < S.callId) {
+      relaySend(c, 'sig', { t: 'cancel', callId: S.callId });
+      ringing = { c, d };
+      acceptRing();
+    }
+    return;
+  }
   if (S.active) {   // уже разговариваем — звонящий услышит «занято»
     if (logCall(c, d.callId, 'missedBusy')) noteMissed(c);
     return relaySend(c, 'sig', { t: 'busy', callId: d.callId });
