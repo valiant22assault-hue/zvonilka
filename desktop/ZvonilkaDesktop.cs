@@ -9,7 +9,8 @@
 //   csc /target:winexe /win32icon:../helper/icon.ico /r:Microsoft.Web.WebView2.Core.dll /r:Microsoft.Web.WebView2.WinForms.dll
 //       /r:System.Web.Extensions.dll /r:Microsoft.CSharp.dll /resource:<каждая библиотека>
 //       ZvonilkaDesktop.cs ..\helper\RemoteInput.cs
-// Для проверки: --portable (не устанавливать), --url=адрес, --selftest --dry --log=путь, --tray (запуск в трей).
+// Для проверки: --portable (не устанавливать), --dev (отдельная копия со своими данными, страницей можно
+// управлять через порт отладки 9333), --url=адрес, --selftest --dry --log=путь, --tray (запуск в трей).
 
 using System;
 using System.Collections.Generic;
@@ -43,8 +44,10 @@ static class Program
     public const string Home = "https://valiant22assault-hue.github.io/zvonilka/";
     // --dev: отдельная копия для проверки — свои данные, настройки и окно, установленной Звонилке не мешает.
     public static string Name = "Zvonilka";
+    public static bool Dev;
     public static string AppDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Name); } }
     public static string InstalledExe { get { return Path.Combine(AppDir, "Zvonilka.exe"); } }
+    static string OpenFile { get { return Path.Combine(AppDir, "open.txt"); } }
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     static string logPath;
 
@@ -52,48 +55,90 @@ static class Program
     static void Main(string[] args)
     {
         bool portable = false, tray = false, selftest = false;
-        string url = Home;
+        string url = Home, open = null;
         foreach (string a in args)
         {
             if (a == "--portable") portable = true;
             else if (a == "--tray") tray = true;
             else if (a == "--selftest") selftest = true;
-            else if (a == "--dev") { Name = "Zvonilka.Dev"; portable = true; }
+            else if (a == "--dev") { Name = "Zvonilka.Dev"; portable = Dev = true; }
             else if (a == "--dry") RemoteInput.Dry = true;   // удалённая помощь только записывается
             else if (a.StartsWith("--url=")) url = a.Substring(6);
             else if (a.StartsWith("--log=")) logPath = a.Substring(6);
+            else if (a.StartsWith("zvonilka:", StringComparison.OrdinalIgnoreCase)) open = HashOf(a);
         }
         RemoteInput.Log = Log;
         DpiAware();
         if (!portable && !SamePath(Application.ExecutablePath, InstalledExe))
         {
-            Install();
+            Install(open);
             return;
         }
+        if (!Dev) RegisterLinks();
         bool first;
         Mutex single = new Mutex(true, @"Local\" + Name + ".Desktop", out first);
         if (!first)
         {
-            // Уже запущена — просто показываем её окно.
+            // Уже запущена — показываем её окно (и передаём ссылку, если открыли по ней).
+            if (open != null) try { File.WriteAllText(OpenFile, open); } catch { }
             try { EventWaitHandle.OpenExisting(@"Local\" + Name + ".Show").Set(); } catch { }
             return;
         }
-        Run(url, tray, selftest);
+        Run(url, tray && open == null, selftest, open);
         GC.KeepAlive(single);
     }
 
     // Отдельный метод: типы WebView2 загружаются только здесь — установщику они не нужны.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static void Run(string url, bool tray, bool selftest)
+    static void Run(string url, bool tray, bool selftest, string open)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new MainForm(url, tray, selftest));
+        Application.Run(new MainForm(url, tray, selftest, open));
+    }
+
+    // ---------- ссылки zvonilka: из браузера ----------
+    // На странице приглашения в браузере есть кнопка «Открыть в программе»: zvonilka:add/<код> и zvonilka:link/<код>
+    // (связать браузер и программу). Windows запускает программу с этой ссылкой, а та открывает её на своей странице.
+
+    public static string HashOf(string link)
+    {
+        System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(link ?? "",
+            @"^zvonilka:(?://)?(add|link)/([A-Za-z0-9_.\-]{20,300})/?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? "#" + m.Groups[1].Value.ToLowerInvariant() + "=" + m.Groups[2].Value : null;
+    }
+
+    public static string TakeOpened()
+    {
+        try
+        {
+            if (!File.Exists(OpenFile)) return null;
+            string s = File.ReadAllText(OpenFile).Trim();
+            File.Delete(OpenFile);
+            return s;
+        }
+        catch { return null; }
+    }
+
+    // Без прав администратора: только для этого пользователя.
+    static void RegisterLinks()
+    {
+        try
+        {
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\zvonilka"))
+            {
+                k.SetValue("", "URL:Звонилка");
+                k.SetValue("URL Protocol", "");
+                using (RegistryKey icon = k.CreateSubKey("DefaultIcon")) icon.SetValue("", "\"" + InstalledExe + "\",0");
+                using (RegistryKey cmd = k.CreateSubKey(@"shell\open\command")) cmd.SetValue("", "\"" + InstalledExe + "\" \"%1\"");
+            }
+        }
+        catch (Exception e) { Log("ссылки zvonilka: " + e.Message); }
     }
 
     // ---------- установка ----------
 
-    static void Install()
+    static void Install(string open)
     {
         try
         {
@@ -117,6 +162,8 @@ static class Program
             Shortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Звонилка.lnk"));
             // Запуск вместе с Windows — по умолчанию; если его выключили в меню значка, не включаем снова.
             if (Setting("autostartChosen") == null) SetAutostart(true);
+            RegisterLinks();
+            if (open != null) File.WriteAllText(OpenFile, open);   // установленная копия откроет ссылку сама
             Process.Start(InstalledExe);
         }
         catch (Exception e)
@@ -216,13 +263,15 @@ class MainForm : Form
     readonly CaptionBar caption;
     readonly float scale;
     CoreWebView2Controller controller;
-    bool allowShow, quitting, keepNormalSize;
+    string pendingOpen;   // ссылка zvonilka:, которую откроем, когда загрузится страница
+    bool allowShow, quitting, keepNormalSize, pageReady;
     Size normalSize;
 
     int Px(double v) { return (int)Math.Round(v * scale); }
 
-    public MainForm(string url, bool startInTray, bool selftest)
+    public MainForm(string url, bool startInTray, bool selftest, string link)
     {
+        pendingOpen = link ?? Program.TakeOpened();   // программу запустили ссылкой zvonilka: (или установщик передал её)
         startUrl = url;
         origin = new Uri(url).GetLeftPart(UriPartial.Authority);
         this.selftest = selftest;
@@ -274,7 +323,7 @@ class MainForm : Form
 
         FormClosing += OnClosing;
         // Повторный запуск показывает это окно, новая версия при установке просит его закрыться.
-        Signal(@"Local\" + Program.Name + ".Show", ShowApp);
+        Signal(@"Local\" + Program.Name + ".Show", () => { ShowApp(); OpenLink(Program.TakeOpened()); });
         Signal(@"Local\" + Program.Name + ".Quit", Quit);
 
         var unused = web.Handle;   // окно может быть скрыто (запуск в трей), а WebView2 нужен готовый элемент
@@ -310,7 +359,8 @@ class MainForm : Form
             CoreWebView2EnvironmentOptions opts = new CoreWebView2EnvironmentOptions(
                 "--autoplay-policy=no-user-gesture-required " +
                 "--disable-background-timer-throttling --disable-renderer-backgrounding " +
-                "--disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling");
+                "--disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling" +
+                (Program.Dev ? " --remote-debugging-port=9333" : ""));   // проверочная копия: управлять страницей из теста
             opts.Language = "ru";
             CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Program.AppDir, "Data"), opts);
             await web.EnsureCoreWebView2Async(env);
@@ -355,8 +405,23 @@ class MainForm : Form
             Program.Log("сбой страницы: " + e.ProcessFailedKind);
             BeginInvoke((Action)(() => { try { web.Reload(); } catch { } }));
         };
+        core.NavigationCompleted += (s, e) =>
+        {
+            pageReady = e.IsSuccess;
+            if (pageReady && pendingOpen != null) { string h = pendingOpen; pendingOpen = null; OpenLink(h); }
+        };
         if (selftest) core.NavigationCompleted += (s, e) => SelfTest();
         web.Source = new Uri(startUrl);
+    }
+
+    // Ссылка zvonilka: из браузера — открываем её на странице (приглашение или связка с браузером).
+    void OpenLink(string hash)
+    {
+        if (hash == null || !System.Text.RegularExpressions.Regex.IsMatch(hash, @"^#(add|link)=[A-Za-z0-9_.\-]{20,300}$")) return;
+        ShowApp();
+        if (!pageReady) { pendingOpen = hash; return; }
+        Program.Log("ссылка: " + hash.Substring(0, Math.Min(10, hash.Length)) + "…");
+        web.CoreWebView2.ExecuteScriptAsync("window.zvDesk && zvDesk.open(" + json.Serialize(hash) + ")");
     }
 
     bool Ours(string uri)
@@ -399,6 +464,13 @@ class MainForm : Form
                 break;
             case "inputStop":
                 RemoteInput.ReleaseAll();
+                break;
+            case "browser":   // связать с браузером: та же страница с сайта, но в браузере по умолчанию
+                string hash = Get(d, "hash");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(hash, @"^#link=[A-Za-z0-9_.\-]{20,300}$")) break;
+                string page = startUrl.Split('#')[0] + hash;
+                Program.Log("открыть в браузере: " + page.Substring(0, Math.Min(40, page.Length)) + "…");
+                if (!Program.Dev) OpenExternal(page);   // при проверке браузер на экране не открываем
                 break;
         }
     }

@@ -292,6 +292,11 @@
     <button id="linkRow" class="sound-row" type="button" hidden><span>Строка «на связи» в шторке</span><b id="linkState"></b></button>
     <p class="hint">Строку можно скрыть: звонилка всё равно останется на связи и будет звонить.</p>
   </div>
+  <div id="pcCard" class="card" hidden>
+    <div class="card-head"><h2><i data-i="screen"></i>Браузер и программа</h2></div>
+    <p id="pcText" class="hint"></p>
+    <button id="pcLinkBtn" class="btn btn-ghost" type="button"></button>
+  </div>
   <p class="credit">by Mikhail Zhuravlev</p>
 </section>
 
@@ -371,7 +376,18 @@
       <button class="btn btn-primary" type="submit">Добавить</button>
     </form>
     <a id="openInApp" class="btn btn-ghost" style="margin-top:12px" hidden>У меня приложение — открыть в нём</a>
+    <a id="openInDesk" class="btn btn-ghost" style="margin-top:12px" hidden>У меня программа Звонилка — открыть в ней</a>
+    <p id="openInDeskHint" class="hint" hidden>Браузер спросит, открыть ли приложение, — нажмите «Открыть». В программе нажмите «Добавить».</p>
     <button id="addCancel" class="btn btn-link" type="button">Отмена</button>
+  </div>
+</section>
+
+<section id="linkScreen" class="screen center">
+  <div class="card">
+    <h2 id="linkTitle">Связать Звонилку на этом компьютере?</h2>
+    <p id="linkSub" class="sub"></p>
+    <button id="linkAccept" class="btn btn-primary" type="button">Связать</button>
+    <button id="linkCancel" class="btn btn-link" type="button">Отмена</button>
   </div>
 </section>
 
@@ -530,6 +546,7 @@ const $ = id => document.getElementById(id);
 const App = window.ZvonilkaApp || null;
 if (App) document.documentElement.classList.add('in-app');
 const onAndroid = /Android/i.test(navigator.userAgent);
+const onWindows = /Windows/i.test(navigator.userAgent);
 // Звонилка в программе для Windows (WebView2): трей, окно всплывает при звонке, удалённая помощь без помощника.
 const Desk = window.chrome?.webview ? { send(m) { try { window.chrome.webview.postMessage(m); } catch (e) {} } } : null;
 const S = {
@@ -1213,6 +1230,7 @@ function setChatOpen(open) {
   if (!open) return;
   S.unread = 0;
   if (S.chatWith?.unread) {
+    syncRead(S.chatWith);
     S.chatWith.unread = 0;
     saveContacts();
     renderContacts();
@@ -1902,20 +1920,29 @@ const Store = {
   set(key, value) { try { localStorage.setItem('zvonilka.' + key, JSON.stringify(value)); } catch (e) {} },
   del(key) { try { localStorage.removeItem('zvonilka.' + key); } catch (e) {} },
 };
-const Me = Store.get('me', null) || { id: randomId(), name: '' };
+const Me = Store.get('me', null) || { id: randomId(), name: '' };   // + nameAt, sync — см. «браузер и программа»
 Store.set('me', Me);
-let contacts = Store.get('contacts', []);   // { id, name, secret, unread, push }
-let invites = Store.get('invites', []);     // { secret, created } — ещё не принятые приглашения
-const saveContacts = () => { Store.set('contacts', contacts); syncApp(); };
+const Device = Store.get('device', null) || { id: randomId(12) };  // это устройство среди связанных
+Store.set('device', Device);
+let contacts = Store.get('contacts', []);   // { id, name, secret, unread, push, at — когда изменён, me — см. myIdFor }
+let invites = Store.get('invites', []);     // { secret, created, me } — ещё не принятые приглашения
+let gone = Store.get('gone', []);           // удалённые контакты { id, at } — чтобы связанное устройство их не вернуло
+let deviceLinks = [], joiningLink = null, bookTimer = 0, lastBook = '', bookResends = [];   // см. «браузер и программа»
+let wantTimer = 0, wantFull = false, lastWantAt = 0;
+const answeredWants = new Set();
+// Под каким id нас знает контакт: после связки устройств у контактов, добавленных до неё, может остаться прежний.
+const myIdFor = c => c.me || Me.id;
+const saveContacts = () => { Store.set('contacts', contacts); syncApp(); scheduleBook(); };
 const saveInvites = () => Store.set('invites', invites);
 const loadHistory = id => Store.get('history.' + id, []);
 const saveHistory = (id, list) => Store.set('history.' + id, list.slice(-1000));
-function addHistory(c, entry) {
+function addHistory(c, entry, mirror = true) {
   const list = loadHistory(c.id);
   if (entry.id && list.some(m => m.id === entry.id)) return false;
   list.push(entry);
   saveHistory(c.id, list);
   historyChanged(c);
+  if (mirror) syncSend('h', { t: 'h', cid: c.id, list: [entry] });   // связанному устройству — та же запись
   return true;
 }
 // Одна и та же переписка может быть открыта и в контактах, и в чате звонка.
@@ -2043,25 +2070,33 @@ class MqttLink {
 // Все реле работают параллельно: пишем во все, дубликаты при чтении отбрасываем.
 const Relay = {
   links: [], subs: new Set(), presenceTopic: null,
+  ownTopics: new Set(),       // свои топики присутствия: основной и прежние id (после связки устройств)
   owners: new Map(),          // топик пары → секрет
   presenceOwners: new Map(),  // топик присутствия → id контакта
   presence: new Map(),        // id контакта → [{ on, at } по каждому реле]
+  leaving: false,
   start() {
     if (this.links.length || !this.presenceTopic) return;
     this.links = CONFIG.relays.map((url, i) => new MqttLink(url, i));
     setInterval(() => this.announce(), 60000);
     setInterval(renderContacts, 30000);
     // В приложении «не в сети» не ставим: даже без окна его служба остаётся на связи и сама отмечает присутствие.
-    if (!App) addEventListener('pagehide', () => this.links.forEach(l =>
-      l.raw(MqttLink.packet(0x31, concatBytes(MqttLink.str(this.presenceTopic), te.encode('0:' + Date.now()))))));
+    if (!App) addEventListener('pagehide', () => {
+      this.leaving = true;
+      for (const t of this.ownTopics) this.links.forEach(l =>
+        l.raw(MqttLink.packet(0x31, concatBytes(MqttLink.str(t), te.encode('0:' + Date.now())))));
+    });
     this.changed();
   },
   will() { return !App && this.presenceTopic && { topic: this.presenceTopic, payload: '0:' + Date.now() }; },
   connected(link) {
-    link.publish(this.presenceTopic, te.encode('1:' + Date.now()), true);
+    for (const t of this.ownTopics) link.publish(t, te.encode('1:' + Date.now()), true);
+    if (Me.sync) scheduleWant();   // связанное устройство могло получить что-то, пока нас не было
     this.changed();
   },
-  announce() { this.links.forEach(l => l.ready && l.publish(this.presenceTopic, te.encode('1:' + Date.now()), true)); },
+  announce() {
+    for (const t of this.ownTopics) this.links.forEach(l => l.ready && l.publish(t, te.encode('1:' + Date.now()), true));
+  },
   subscribe(topic) {
     if (this.subs.has(topic)) return;
     this.subs.add(topic);
@@ -2071,6 +2106,7 @@ const Relay = {
   online() { return this.links.some(l => l.ready); },
   changed() { renderRelay(); },
   async receive(topic, payload, retained, link) {
+    if (this.ownTopics.has(topic)) return onOwnPresence(topic, payload, link);
     const who = this.presenceOwners.get(topic);
     if (who) return onPresence(who, payload, retained, link.index);
     const base = topic.split('/').slice(0, 3).join('/');
@@ -2078,11 +2114,17 @@ const Relay = {
     if (!secret || !payload.length) return;   // пустой retained — значит, конверт уже забрали
     let d;
     try { d = await unseal((await pairOf(secret)).key, payload); } catch (e) { return; }
-    if (!d || d.from === Me.id) return;
+    if (!d) return;
+    // Свои каналы: связанные устройства и ссылка для связки. Своё же эхо (dev — это устройство) пропускаем.
+    if (secret === Me.sync) return d.dev !== Device.id && onSync(d);
+    if (secret === joiningLink || deviceLinks.some(l => l.secret === secret)) return d.dev !== Device.id && onDeviceLink(secret, d, topic);
     const invite = invites.find(i => i.secret === secret);
-    if (invite) return d.t === 'hello' && onHello(invite, d, topic);
+    if (invite) return d.t === 'hello' && d.from !== myIdFor(invite) && onHello(invite, d, topic);
     const c = contacts.find(x => x.secret === secret);
-    if (!c || d.from !== c.id) return;
+    if (!c) return;
+    // От нашего же имени: своё эхо или другое наше устройство (только если устройства связаны).
+    if (d.from === myIdFor(c)) return Me.sync && d.dev !== Device.id && onMine(c, d);
+    if (d.from !== c.id) return;
     if (d.t === 'msg') onContactMessage(c, d, topic);
     else if (d.t === 'ack') onAck(c, d);
     else if (d.t === 'push') { if (d.sub?.endpoint) { c.push = d.sub; saveContacts(); } }
@@ -2105,7 +2147,7 @@ async function watchContact(c) {
 }
 async function relaySend(c, sub, obj, retain = false) {
   const { topic, key } = await pairOf(c.secret);
-  Relay.publish(topic + '/' + sub, await seal(key, { ...obj, from: Me.id }), retain);
+  Relay.publish(topic + '/' + sub, await seal(key, { ...obj, from: myIdFor(c), dev: Device.id }), retain);
 }
 async function relayClear(c, sub) {
   Relay.publish((await pairOf(c.secret)).topic + '/' + sub, EMPTY, true);
@@ -2132,7 +2174,7 @@ async function createContactInvite() {
     $('nameInput').focus();
     return toast('Сначала напишите, как вас зовут');
   }
-  const inv = { secret: randomId(32), created: Date.now(), expires: Date.now() + INVITE_TTL };
+  const inv = { secret: randomId(32), created: Date.now(), expires: Date.now() + INVITE_TTL, me: Me.id };
   invites.push(inv);
   saveInvites();
   Relay.start();
@@ -2184,6 +2226,9 @@ function openAddScreen(add) {
   // Если приложения нет, браузер просто останется на этой странице.
   $('openInApp').href = 'intent://add/' + add.raw + '#Intent;scheme=zvonilka;package=io.github.zvonilka.app;S.browser_fallback_url='
     + encodeURIComponent(location.href) + ';end';
+  // То же на компьютере: программа «Звонилка» для Windows открывает ссылки zvonilka:.
+  $('openInDesk').hidden = $('openInDeskHint').hidden = !!App || !!Desk || !onWindows || add.expired;
+  $('openInDesk').href = 'zvonilka:add/' + add.raw;
   show('addScreen');
 }
 async function acceptContactLink() {
@@ -2191,12 +2236,13 @@ async function acceptContactLink() {
   if (!add || add.expired) return;
   const name = $('addName').value.trim().slice(0, 40);
   if (!name) return $('addName').focus();
-  if (add.id === Me.id) return toast('Это ваша собственная ссылка — отправьте её собеседнику', 5000);
-  Me.name = name;
+  if (add.id === Me.id || contacts.some(x => x.me === add.id)) return toast('Это ваша собственная ссылка — отправьте её собеседнику', 5000);
+  if (name !== Me.name) { Me.name = name; Me.nameAt = Date.now(); }
   Store.set('me', Me);
   let c = contacts.find(x => x.id === add.id);
   if (!c) contacts.push(c = { id: add.id, name: add.name, secret: add.secret, unread: 0 });
-  else c.secret = add.secret;
+  else { c.secret = add.secret; delete c.me; }   // по новой ссылке знакомимся под нынешним id
+  c.at = Date.now();
   saveContacts();
   pendingAdd = null;
   history.replaceState(null, '', pageUrl());
@@ -2213,6 +2259,9 @@ function onHello(inv, d, topic) {
   let c = contacts.find(x => x.id === d.from);
   if (!c) contacts.push(c = { id: d.from, name: String(d.name || 'Контакт').slice(0, 40), secret: inv.secret, unread: 0 });
   else c.secret = inv.secret;
+  if (inv.me && inv.me !== Me.id) c.me = inv.me;   // приглашение выдано до связки устройств — под прежним id
+  else delete c.me;
+  c.at = Date.now();
   saveContacts();
   Relay.publish(topic, EMPTY, true);
   watchContact(c);
@@ -2221,6 +2270,287 @@ function onHello(inv, d, topic) {
   renderContacts();
   toast('Новый контакт: ' + c.name, 5000);
   systemNotify('Новый контакт', c.name);
+}
+
+// ---------- браузер и программа: одна учётная запись ----------
+// Связанные устройства (обычно браузер и программа на одном компьютере) — это один человек: общий id, имя,
+// контакты и переписка. Звонок приходит на оба, ответили на одном — второй замолкает. Договариваются они
+// по своему каналу (секрет Me.sync): адресная книга лежит на реле, новые записи переписки пересылаются сразу,
+// а пропущенное, пока устройство было выключено, оно запрашивает при подключении.
+// Связка — одноразовой ссылкой на 10 минут: одно устройство передаёт её другому на этом же компьютере.
+
+const LINK_TTL = 10 * 60000;
+
+async function syncSend(sub, obj, retain = false) {
+  if (!Me.sync) return;
+  const { topic, key } = await pairOf(Me.sync);
+  Relay.publish(topic + '/' + sub, await seal(key, { ...obj, dev: Device.id }), retain);
+}
+async function linkSend(secret, sub, obj, retain = false) {
+  const { topic, key } = await pairOf(secret);
+  Relay.publish(topic + '/' + sub, await seal(key, { ...obj, dev: Device.id }), retain);
+}
+function syncRead(c) {
+  syncSend('read', { t: 'read', cid: c.id });
+}
+
+// Своё присутствие: основной id и прежние, под которыми нас знают контакты, добавленные до связки.
+async function updateOwnPresence() {
+  const ids = new Set([Me.id]);
+  for (const c of contacts) if (c.me) ids.add(c.me);
+  Relay.presenceTopic = await presenceTopicOf(Me.id);
+  const topics = new Set(await Promise.all([...ids].map(presenceTopicOf)));
+  const added = [...topics].filter(t => !Relay.ownTopics.has(t));
+  Relay.ownTopics = topics;
+  for (const t of added) Relay.links.forEach(l => l.ready && l.publish(t, te.encode('1:' + Date.now()), true));
+  if (Me.sync) for (const t of topics) Relay.subscribe(t);
+}
+// Связанное устройство закрылось, и реле отметило нас «не в сети», — а мы здесь: отмечаемся снова.
+function onOwnPresence(topic, payload, link) {
+  if (Relay.leaving || !Me.sync || td.decode(payload)[0] !== '0') return;
+  link.publish(topic, te.encode('1:' + Date.now()), true);
+}
+
+async function startSync() {
+  if (!Me.sync) return;
+  await watchSecret(Me.sync);
+  await updateOwnPresence();
+  scheduleBook();
+  scheduleWant();
+}
+
+// То же «я» на другом устройстве ответило на звонок или отклонило его — здесь перестаём звонить.
+function onMine(c, d) {
+  if (!ringing || ringing.c !== c || ringing.d.callId !== d.callId) return;
+  const text = { taken: 'Ответили на другом устройстве', answer: 'Ответили на другом устройстве',
+                 decline: 'Звонок отклонён на другом устройстве', busy: 'Вы разговариваете на другом устройстве' }[d.t];
+  if (!text) return;
+  stopRinging();
+  toast(text, 4000);
+}
+
+function onSync(d) {
+  if (d.t === 'book') mergeBook(d);
+  else if (d.t === 'h') mergeHistory(d.cid, d.list);
+  else if (d.t === 'want') answerWant(d);
+  else if (d.t === 'read') {
+    const c = contacts.find(x => x.id === d.cid);
+    if (!c?.unread) return;
+    c.unread = 0;
+    saveContacts();
+    renderContacts();
+    updateBadge();
+  }
+}
+
+// Адресная книга: имя и контакты с временем изменения, удалённые — тоже (иначе другое устройство вернёт их).
+const byId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const bookEntry = c => ({ id: c.id, name: c.name, secret: c.secret, me: myIdFor(c), at: c.at || 0 });
+function bookOf() {
+  return { name: Me.name || '', nameAt: Me.nameAt || 0, contacts: contacts.map(bookEntry).sort(byId), gone: gone.slice().sort(byId) };
+}
+function scheduleBook() {
+  if (!Me.sync) return;
+  clearTimeout(bookTimer);
+  bookTimer = setTimeout(() => {
+    const b = bookOf(), s = JSON.stringify(b);
+    if (s === lastBook) return;
+    lastBook = s;
+    syncSend('book', { t: 'book', ...b }, true);
+  }, 1500);
+}
+// Побеждает более позднее изменение; при равном времени — одно и то же на обоих устройствах правило.
+const newer = (at, mine, theirs, mineAt) => at > mineAt || (at === mineAt && JSON.stringify(theirs) > JSON.stringify(mine));
+function mergeBook(b) {
+  let changed = false;
+  for (const g of Array.isArray(b.gone) ? b.gone : []) {
+    if (!g?.id || !(g.at > 0)) continue;
+    const old = gone.find(x => x.id === g.id);
+    if (!old || g.at > old.at) { gone = gone.filter(x => x.id !== g.id).concat({ id: g.id, at: g.at }); changed = true; }
+    const c = contacts.find(x => x.id === g.id);
+    if (c && (c.at || 0) <= g.at) { dropContact(c); changed = true; }
+  }
+  for (const r of Array.isArray(b.contacts) ? b.contacts : []) {
+    if (!r?.id || typeof r.secret !== 'string' || typeof r.name !== 'string') continue;
+    const at = +r.at || 0;
+    if (gone.some(g => g.id === r.id && g.at >= at)) continue;
+    const entry = { id: r.id, name: r.name.slice(0, 40), secret: r.secret, me: r.me || Me.id, at };
+    let c = contacts.find(x => x.id === r.id);
+    if (c && !newer(at, bookEntry(c), entry, c.at || 0)) continue;
+    if (!c) contacts.push(c = { id: r.id, unread: 0 });
+    const resubscribe = c.secret !== entry.secret;
+    Object.assign(c, { name: entry.name, secret: entry.secret, at });
+    if (entry.me !== Me.id) c.me = entry.me;
+    else delete c.me;
+    if (resubscribe) watchContact(c);
+    changed = true;
+  }
+  const name = String(b.name || '').slice(0, 40), nameAt = +b.nameAt || 0;
+  if (name && newer(nameAt, Me.name || '', name, Me.nameAt || 0)) {
+    Me.name = name;
+    Me.nameAt = nameAt;
+    Store.set('me', Me);
+    syncApp();
+    changed = true;
+  }
+  if (changed) {
+    Store.set('gone', gone);
+    saveContacts();
+    renderContacts();
+    updateOwnPresence();
+    scheduleWant();   // переписка новых контактов
+  }
+  // У нас есть то, чего нет у другого устройства, — отправим свою книгу (но не перебрасываемся ею без конца,
+  // если какую-то запись другое устройство принять не может).
+  const theirs = { name: String(b.name || ''), nameAt: +b.nameAt || 0,
+                   contacts: (b.contacts || []).slice().sort(byId), gone: (b.gone || []).slice().sort(byId) };
+  if (JSON.stringify(theirs) === JSON.stringify(bookOf())) return;
+  bookResends = bookResends.filter(t => Date.now() - t < 60000);
+  if (bookResends.length >= 5) return;
+  bookResends.push(Date.now());
+  lastBook = '';
+  scheduleBook();
+}
+
+// Переписка: записи сливаются по id и встают по времени.
+function mergeHistory(cid, list) {
+  const c = contacts.find(x => x.id === cid);
+  if (!c || !Array.isArray(list)) return;
+  const cur = loadHistory(cid), ids = new Set(cur.map(m => m.id));
+  let added = 0;
+  for (const e of list) {
+    if (!e || typeof e.id !== 'string' || ids.has(e.id) || !(e.ts > 0)) continue;
+    const m = { id: e.id, ts: +e.ts };
+    if (typeof e.text === 'string') m.text = e.text.slice(0, 2000);
+    if (e.mine) m.mine = true;
+    if (typeof e.status === 'string') m.status = e.status;
+    if (typeof e.sys === 'string') m.sys = e.sys.slice(0, 200);
+    if (typeof e.call === 'string') m.call = e.call;
+    cur.push(m);
+    ids.add(m.id);
+    added++;
+  }
+  if (!added) return;
+  cur.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  saveHistory(cid, cur);
+  historyChanged(c);
+  renderContacts();
+}
+// При подключении спрашиваем, что появилось с последней записи (с запасом в час), — отвечает тот, кто в сети.
+// Сразу после связки — всю переписку (full): до связки у устройств она копилась каждая своя.
+function scheduleWant(full = false) {
+  if (!Me.sync) return;
+  wantFull = wantFull || full;
+  clearTimeout(wantTimer);
+  wantTimer = setTimeout(() => {
+    const since = {};
+    if (!wantFull) for (const c of contacts) since[c.id] = Math.max(0, loadHistory(c.id).reduce((m, e) => Math.max(m, e.ts || 0), 0) - 3600000);
+    syncSend('want', { t: 'want', id: randomId(6), since, full: wantFull });
+    wantFull = false;
+    lastWantAt = Date.now();
+  }, 2000);
+}
+function answerWant(d) {
+  if (answeredWants.has(d.id)) return;   // один и тот же запрос приходит через каждое реле
+  answeredWants.add(d.id);
+  // И сами спросим в ответ: у другого устройства может не быть того, что есть у нас (не чаще раза в полминуты).
+  if (d.full) scheduleWant(true);
+  else if (Date.now() - lastWantAt > 30000) scheduleWant();
+  const since = d.since || {};
+  for (const c of contacts) {
+    const list = loadHistory(c.id).filter(e => (e.ts || 0) > (since[c.id] || 0)).slice(-300);
+    for (let i = 0; i < list.length; i += 40) syncSend('h', { t: 'h', cid: c.id, list: list.slice(i, i + 40) });
+  }
+}
+
+// Связка. Выдавшая ссылку сторона отдаёт свою учётную запись, присоединившаяся её принимает
+// (свои прежние контакты она сохраняет: они знают её под прежним id).
+async function createDeviceLink() {
+  if (!Me.sync) { Me.sync = randomId(32); Store.set('me', Me); }
+  await startSync();
+  const dl = { secret: randomId(32), expires: Date.now() + LINK_TTL };
+  deviceLinks.push(dl);
+  await watchSecret(dl.secret);
+  Relay.start();
+  return dl.secret + '.' + dl.expires.toString(36);
+}
+function parseDeviceLink(hash) {
+  const m = String(hash || '').match(/#link=([A-Za-z0-9_-]{40,48})\.([0-9a-z]{1,12})/);
+  return m && { secret: m[1], expired: !(parseInt(m[2], 36) > Date.now()) };
+}
+let pendingLink = null;
+function openLinkScreen(dl) {
+  pendingLink = dl;
+  $('linkTitle').textContent = dl.expired ? 'Ссылка для связки устарела'
+    : Desk ? 'Связать программу со Звонилкой в браузере?' : 'Связать со Звонилкой на этом компьютере?';
+  $('linkSub').textContent = dl.expired ? 'Она действует 10 минут. Нажмите кнопку связки ещё раз.'
+    : 'Контакты, переписка и ваше имя станут общими. Звонки будут приходить и сюда, и туда — ответите в одном месте, в другом звонить перестанет.';
+  $('linkAccept').hidden = dl.expired;
+  show('linkScreen');
+}
+async function acceptDeviceLink() {
+  const dl = pendingLink;
+  if (!dl || dl.expired) return;
+  pendingLink = null;
+  history.replaceState(null, '', pageUrl());
+  joiningLink = dl.secret;
+  await updateOwnPresence();
+  await watchSecret(dl.secret);
+  Relay.start();
+  await linkSend(dl.secret, 'j', { t: 'join' }, true);
+  goHome();
+  toast('Связываем…');
+  setTimeout(() => {
+    if (joiningLink !== dl.secret) return;
+    joiningLink = null;
+    toast('Не получилось связать. Откройте Звонилку там, где нажимали кнопку, и попробуйте ещё раз.', 8000);
+  }, 30000);
+}
+function onDeviceLink(secret, d, topic) {
+  const dl = deviceLinks.find(l => l.secret === secret);
+  if (dl && d.t === 'join') {
+    if (dl.expires < Date.now()) return;
+    deviceLinks = deviceLinks.filter(l => l !== dl);
+    Relay.publish(topic, EMPTY, true);
+    linkSend(secret, 'w', { t: 'welcome', id: Me.id, name: Me.name || '', nameAt: Me.nameAt || 0, sync: Me.sync }, true);
+    toast('Связано: контакты и переписка теперь общие', 5000);
+    renderPc();
+  } else if (secret === joiningLink && d.t === 'welcome' && typeof d.sync === 'string' && typeof d.id === 'string') {
+    joiningLink = null;
+    Relay.publish(topic, EMPTY, true);
+    adoptAccount(d);
+  }
+}
+async function adoptAccount(d) {
+  const oldId = Me.id;
+  if (d.id !== oldId) {
+    for (const c of contacts) if (!c.me) c.me = oldId;
+    for (const inv of invites) if (!inv.me) inv.me = oldId;
+    saveInvites();
+  }
+  Me.id = d.id;
+  Me.sync = d.sync;
+  if (d.name && (!Me.name || (+d.nameAt || 0) >= (Me.nameAt || 0))) { Me.name = String(d.name).slice(0, 40); Me.nameAt = +d.nameAt || 0; }
+  Store.set('me', Me);
+  lastBook = '';
+  saveContacts();
+  syncApp();
+  await startSync();
+  scheduleWant(true);   // обменяться всей перепиской: другое устройство в ответ спросит и нашу
+  renderContacts();
+  renderPc();
+  toast('Связано: контакты и переписка теперь общие', 5000);
+}
+
+function renderPc() {
+  const on = (!!Desk || (onWindows && !App)) && !!window.crypto?.subtle;
+  $('pcCard').hidden = !on;
+  if (!on) return;
+  $('pcText').textContent = Me.sync
+    ? 'Связано: у программы и браузера на этом компьютере общие контакты и переписка. Звонки приходят и туда, и туда.'
+    : Desk ? 'Пользовались Звонилкой в браузере? Нажмите кнопку — откроется браузер, там нажмите «Связать». Контакты и переписка станут общими.'
+    : 'Установили программу Звонилка? Свяжите её с браузером: браузер спросит, открыть ли приложение, — нажмите «Открыть», а в программе — «Связать». Контакты и переписка станут общими.';
+  $('pcLinkBtn').textContent = Desk ? 'Связать с браузером' : 'Связать с программой Звонилка';
 }
 
 // ---------- звонок по ссылке с контактом ----------
@@ -2314,6 +2644,7 @@ function onAck(c, d) {
 
 function openConv(c) {
   convContact = c;
+  if (c.unread) syncRead(c);
   c.unread = 0;
   saveContacts();
   updateBadge();
@@ -2384,8 +2715,10 @@ function saveMyName(value) {
   const name = String(value || '').trim().slice(0, 40);
   if (!name || name === Me.name) return false;
   Me.name = name;
+  Me.nameAt = Date.now();
   Store.set('me', Me);
   syncApp();
+  scheduleBook();
   return true;
 }
 function editRow(c) {
@@ -2404,6 +2737,7 @@ function editRow(c) {
     if (!name) { input.value = c.name; return; }
     if (name === c.name) return;
     c.name = name;
+    c.at = Date.now();
     av.textContent = initial(name);
     saveContacts();
   };
@@ -2433,6 +2767,13 @@ function editRow(c) {
 // Контакт исчезает вместе с перепиской; вернуть — только новым приглашением.
 function deleteContact(c) {
   if (S.active && S.chatWith === c) { toast('Сначала завершите звонок с этим контактом'); return false; }
+  gone = gone.filter(g => g.id !== c.id).concat({ id: c.id, at: Date.now() });   // и на связанном устройстве
+  Store.set('gone', gone);
+  dropContact(c);
+  toast('Контакт «' + c.name + '» удалён');
+  return true;
+}
+function dropContact(c) {
   if (ringing?.c === c) stopRinging();
   contacts = contacts.filter(x => x !== c);
   saveContacts();   // служба приложения тоже перестанет его слушать
@@ -2442,8 +2783,6 @@ function deleteContact(c) {
   for (const [topic, id] of Relay.presenceOwners) if (id === c.id) Relay.presenceOwners.delete(topic);
   pairOf(c.secret).then(({ topic }) => Relay.owners.delete(topic));
   renderContacts();
-  toast('Контакт «' + c.name + '» удалён');
-  return true;
 }
 
 function renderContacts() {
@@ -2631,6 +2970,8 @@ async function acceptRing() {
   if (!ringing) return;
   const { c, d } = ringing;
   stopRinging();
+  // Связанное устройство замолкает сразу, не дожидаясь, пока здесь включится микрофон.
+  if (Me.sync) relaySend(c, 'sig', { t: 'taken', callId: d.callId });
   relayClear(c, 'call');
   enterDirect('answerer');
   setCallContact(c, d.callId);
@@ -2795,6 +3136,12 @@ function route() {
   if (add) {
     if (S.active) leaveCall(false);
     return openAddScreen(add);
+  }
+  const link = parseDeviceLink(location.hash);
+  if (link) {
+    if (S.active) leaveCall(false);
+    if (App) { history.replaceState(null, '', pageUrl()); goHome(); return toast('Связать можно браузер и программу на компьютере'); }
+    return openLinkScreen(link);
   }
   const direct = parseDirectLink(location.hash);
   if (direct?.kind === 'answer') {
@@ -3130,6 +3477,21 @@ $('inviteCopyBtn').onclick = async () => {
 $('pushBtn').onclick = () => Push.enable();
 $('addForm').onsubmit = e => { e.preventDefault(); acceptContactLink(); };
 $('addCancel').onclick = toHome;
+$('linkAccept').onclick = acceptDeviceLink;
+$('linkCancel').onclick = () => { pendingLink = null; toHome(); };
+$('pcLinkBtn').onclick = async () => {
+  const code = await createDeviceLink();
+  if (Desk) return Desk.send({ t: 'browser', hash: '#link=' + code });   // программа откроет браузер по умолчанию
+  location.href = 'zvonilka:link/' + code;   // браузер спросит, открыть ли программу
+};
+// Программа для Windows передаёт сюда ссылки zvonilka:, открытые в браузере (приглашение, связка).
+window.zvDesk = {
+  open(hash) {
+    if (!/^#(add|link)=[A-Za-z0-9_.-]{20,300}$/.test(hash)) return;
+    if (S.active) return toast('Сначала завершите звонок, потом откройте ссылку ещё раз', 6000);
+    location.hash = hash.slice(1);
+  },
+};
 $('convBack').onclick = toHome;
 $('convCall').onclick = () => convContact && callContact(convContact);
 $('convForm').onsubmit = e => {
@@ -3147,6 +3509,7 @@ document.addEventListener('visibilitychange', () => {
   const screen = document.body.dataset.screen;
   const c = screen === 'conv' ? convContact : screen === 'call' && S.chatOpen ? S.chatWith : null;
   if (!c?.unread) return;
+  syncRead(c);
   c.unread = 0;
   saveContacts();
   updateBadge();
@@ -3156,13 +3519,15 @@ document.addEventListener('visibilitychange', () => {
   if (!window.crypto?.subtle || !window.WebSocket) { $('contactsCard').hidden = true; return; }
   pendingAccept = App?.takeAccept() || null;   // приложение открыли кнопкой «Ответить»
   pruneInvites();   // приглашения прошлых версий (без срока) и давно истёкшие
-  Relay.presenceTopic = await presenceTopicOf(Me.id);
-  if (contacts.length || invites.length) {
+  await updateOwnPresence();
+  if (contacts.length || invites.length || Me.sync) {
     for (const c of contacts) await watchContact(c);
     for (const inv of invites) await watchSecret(inv.secret);
+    await startSync();
     Relay.start();
   }
   renderContacts();
+  renderPc();
   syncApp();
   pullCallLog();
   Push.refresh();
