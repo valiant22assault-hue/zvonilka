@@ -3,6 +3,7 @@ package io.github.zvonilka.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
@@ -126,6 +127,14 @@ public class MainActivity extends Activity {
         visible = true;
         ZvService s = ZvService.instance;
         if (s != null) s.clearMessages();
+        // Вернулись (например, из системных настроек) — обновить настройки и историю звонков.
+        js("window.zvApp && zvApp.resumed && zvApp.resumed()");
+    }
+
+    private boolean linkHidden() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        NotificationChannel ch = nm.getNotificationChannel("link");
+        return !nm.areNotificationsEnabled() || (ch != null && ch.getImportance() == NotificationManager.IMPORTANCE_NONE);
     }
 
     @Override protected void onStop() {
@@ -420,6 +429,7 @@ public class MainActivity extends Activity {
                         .put("call", Sounds.title(MainActivity.this, Sounds.get(MainActivity.this, Sounds.CALL)))
                         .put("msg", Sounds.title(MainActivity.this, Sounds.get(MainActivity.this, Sounds.MSG)))
                         .put("vibrate", Sounds.vibrate(MainActivity.this))
+                        .put("linkHidden", linkHidden())
                         .toString();
             } catch (Exception e) {
                 return "{}";
@@ -442,6 +452,24 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, "На этом телефоне нет выбора мелодий", Toast.LENGTH_LONG).show();
                 }
             });
+        }
+
+        /** Системные настройки уведомления «на связи»: его можно выключить, служба продолжит работать. */
+        @JavascriptInterface public void linkSettings() {
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                            .putExtra(Settings.EXTRA_CHANNEL_ID, "link"));
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Не получилось открыть настройки уведомлений", Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
+        /** Пропущенные и отклонённые звонки, которые служба приняла без окна. */
+        @JavascriptInterface public String takeCallLog() {
+            return ZvService.takeCallLog(MainActivity.this);
         }
 
         @JavascriptInterface public void setVibrate(boolean on) {

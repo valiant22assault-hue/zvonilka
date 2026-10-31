@@ -53,6 +53,7 @@ public class ZvService extends Service implements RelayCore.Events {
 
     static volatile ZvService instance;
     static volatile String ringingCallId;
+    private static final Object CALL_LOG = new Object();
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Set<String> msgTags = new HashSet<>();
@@ -251,11 +252,13 @@ public class ZvService extends Service implements RelayCore.Events {
         }
     }
 
+    // Без такого уведомления Android закроет службу. Его можно скрыть, выключив канал «Связь» в настройках:
+    // служба продолжит работать.
     private Notification linkNotification() {
         return new NotificationCompat.Builder(this, CH_LINK)
                 .setSmallIcon(R.drawable.ic_call)
-                .setContentTitle(online ? "Звонилка на связи" : "Звонилка: нет связи с реле")
-                .setContentText(online ? "Ждём звонков и сообщений" : "Подключимся, как только появится интернет")
+                .setContentTitle(online ? "Звонилка на связи" : "Звонилка: нет связи с сервером")
+                .setContentText(online ? null : "Подключимся, как только появится интернет")
                 .setContentIntent(openApp(null))
                 .setOngoing(true)
                 .setShowWhen(false)
@@ -337,14 +340,16 @@ public class ZvService extends Service implements RelayCore.Events {
         });
     }
 
-    @Override public void ringStopped(RelayCore.Contact c, String callId, boolean missed) {
+    @Override public void ringStopped(RelayCore.Contact c, String callId, String reason) {
         main.post(() -> {
             if (callId != null && callId.equals(ringingCallId)) ringingCallId = null;
             nm.cancel(ID_RING);
             stopRingtone();
             release(ringLock);
             IncomingCallActivity.close();
-            if (!missed) return;
+            if (RelayCore.DECLINED.equals(reason)) logCall(c, callId, "rejected");
+            if (!RelayCore.MISSED.equals(reason)) return;
+            logCall(c, callId, "missed");
             nm.notify("missed:" + c.id, ID_MISSED, new NotificationCompat.Builder(this, CH_MISSED)
                     .setSmallIcon(R.drawable.ic_call)
                     .setContentTitle("Пропущенный звонок")
@@ -354,6 +359,33 @@ public class ZvService extends Service implements RelayCore.Events {
                     .setAutoCancel(true)
                     .build());
         });
+    }
+
+    // Пропущенные и отклонённые здесь звонки страница заберёт в историю переписки, когда откроется
+    // (если открыта — сразу). Повторы она отбросит сама: у записи тот же id звонка.
+    private void logCall(RelayCore.Contact c, String callId, String kind) {
+        if (callId == null) return;
+        synchronized (CALL_LOG) {
+            try {
+                JSONArray a = new JSONArray(prefs.getString("callLog", "[]"));
+                a.put(new JSONObject().put("contact", c.id).put("callId", callId).put("kind", kind).put("ts", System.currentTimeMillis()));
+                while (a.length() > 100) a.remove(0);
+                prefs.edit().putString("callLog", a.toString()).apply();
+            } catch (Exception e) {
+                Log.w(TAG, "callLog: " + e);
+            }
+        }
+        MainActivity.runJs("window.zvApp && zvApp.callLogChanged && zvApp.callLogChanged()");
+    }
+
+    /** Забрать накопленные записи о звонках (для страницы). */
+    static String takeCallLog(Context ctx) {
+        synchronized (CALL_LOG) {
+            SharedPreferences p = ctx.getSharedPreferences("zv", MODE_PRIVATE);
+            String s = p.getString("callLog", "[]");
+            p.edit().remove("callLog").apply();
+            return s;
+        }
     }
 
     @Override public void message(RelayCore.Contact c, String text) {

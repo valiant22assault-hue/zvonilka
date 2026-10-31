@@ -25,7 +25,7 @@ import org.json.JSONObject;
 final class RelayCore implements MqttLink.Listener {
     interface Events {
         void ring(Contact c, String callId);
-        void ringStopped(Contact c, String callId, boolean missed);
+        void ringStopped(Contact c, String callId, String reason);
         void message(Contact c, String text);
         void relays(boolean online);
         void log(String msg);
@@ -48,6 +48,8 @@ final class RelayCore implements MqttLink.Listener {
     }
 
     static final long RING_MS = 60_000;   // столько звонок ждёт ответа — как в index.html
+    // Почему звонок перестал звонить: не ответили (или звонящий передумал), отклонили, ответила страница.
+    static final String MISSED = "missed", DECLINED = "declined", ANSWERED = "answered";
     static final List<String> DEFAULT_RELAYS = Arrays.asList(
             "wss://broker.emqx.io:8084/mqtt", "wss://broker.hivemq.com:8884/mqtt");
 
@@ -81,14 +83,14 @@ final class RelayCore implements MqttLink.Listener {
 
     /** Страница сама ответила на звонок или отклонила его — перестаём звонить. */
     void ringDone(String callId) {
-        exec.execute(() -> { if (callId != null && callId.equals(ringId)) stopRing(false); });
+        exec.execute(() -> { if (callId != null && callId.equals(ringId)) stopRing(ANSWERED); });
     }
 
     void decline(String callId) {
         exec.execute(() -> {
             Contact c = ringC;
             if (c == null || callId == null || !callId.equals(ringId)) return;
-            stopRing(false);
+            stopRing(DECLINED);
             signal(c, "decline", callId);
             publishAll(c.pair.topic + "/call", new byte[0], true);   // убираем приглашение с реле
         });
@@ -216,7 +218,7 @@ final class RelayCore implements MqttLink.Listener {
         String sub = topic.substring(cut + 1);
         if (payload.length == 0) {
             // Приглашение убрали с реле, а мы ещё звоним — значит, звонящий передумал.
-            if (sub.equals("call") && c == ringC) stopRing(true);
+            if (sub.equals("call") && c == ringC) stopRing(MISSED);
             return;
         }
         JSONObject d;
@@ -229,7 +231,7 @@ final class RelayCore implements MqttLink.Listener {
         String t = d.optString("t");
         if (t.equals("offer") && sub.equals("call")) onOffer(c, d);
         else if (t.equals("cancel")) {
-            if (c == ringC && d.optString("callId").equals(ringId)) stopRing(true);
+            if (c == ringC && d.optString("callId").equals(ringId)) stopRing(MISSED);
         } else if (t.equals("msg") && sub.startsWith("m/")) {
             String id = d.optString("id"), text = d.optString("text");
             if (!id.isEmpty() && !text.isEmpty() && seen.firstTime(c.id + "/" + id)) ev.message(c, text);
@@ -244,19 +246,19 @@ final class RelayCore implements MqttLink.Listener {
         if (busy || ringC != null) return;
         ringC = c;
         ringId = callId;
-        ringTimeout = exec.schedule(() -> stopRing(true), Math.max(1000, RING_MS - age), TimeUnit.MILLISECONDS);
+        ringTimeout = exec.schedule(() -> stopRing(MISSED), Math.max(1000, RING_MS - age), TimeUnit.MILLISECONDS);
         ev.ring(c, callId);
         signal(c, "ringing", callId);   // звонящий увидит «телефон звонит»
     }
 
-    private void stopRing(boolean missed) {
+    private void stopRing(String reason) {
         if (ringC == null) return;
         Contact c = ringC;
         String id = ringId;
         ringC = null;
         ringId = null;
         if (ringTimeout != null) ringTimeout.cancel(false);
-        ev.ringStopped(c, id, missed);
+        ev.ringStopped(c, id, reason);
     }
 
     private static int nthSlash(String s, int n) {
