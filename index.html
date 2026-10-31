@@ -414,7 +414,7 @@
 <div id="ctlAsk" class="ring" hidden>
   <div class="ring-card">
     <h2 id="ctlAskTitle"></h2>
-    <p class="sub">Для этого на компьютере должна быть запущена программа «Помощник Звонилки». Остановить можно в любой момент.</p>
+    <p class="sub" id="ctlAskSub">Для этого на компьютере должна быть запущена программа «Помощник Звонилки». Остановить можно в любой момент.</p>
     <div class="ctl-ask-btns">
       <button id="ctlDeny" class="btn btn-ghost" type="button">Нет</button>
       <button id="ctlAllow" class="btn btn-primary" type="button">Разрешить</button>
@@ -530,6 +530,8 @@ const $ = id => document.getElementById(id);
 const App = window.ZvonilkaApp || null;
 if (App) document.documentElement.classList.add('in-app');
 const onAndroid = /Android/i.test(navigator.userAgent);
+// Звонилка в программе для Windows (WebView2): трей, окно всплывает при звонке, удалённая помощь без помощника.
+const Desk = window.chrome?.webview ? { send(m) { try { window.chrome.webview.postMessage(m); } catch (e) {} } } : null;
 const S = {
   mode: 'server',   // 'server' — через сигнальный сервер, 'direct' — обмен ссылками без сервера
   room: null, peer: null, call: null, dc: null, role: null,
@@ -1027,7 +1029,7 @@ function onState(d) {
 // Только с контактом (собеседник проверен ключом пары), только «Весь экран», остановить — в любой момент.
 
 const HELPER_URL = 'ws://127.0.0.1:47231/';   // тот же номер — в helper/ZvonilkaHelper.cs
-const Remote = { ws: null, on: false };      // нашим компьютером управляют
+const Remote = { ws: null, on: false, desk: false };   // нашим компьютером управляют (desk — через программу для Windows)
 
 function ctlSend(msg) {
   try { if (S.dc?.open) S.dc.send(msg); } catch (e) {}
@@ -1038,6 +1040,7 @@ function onCtlAsk() {
   const surface = S.screen?.getSettings?.().displaySurface;
   if (!S.screen || (surface && surface !== 'monitor')) return ctlSend({ type: 'ctl-no', reason: 'screen' });
   $('ctlAskTitle').textContent = c.name + ' просит управлять вашим компьютером';
+  if (Desk) $('ctlAskSub').textContent = 'Остановить можно в любой момент.';
   $('ctlAsk').hidden = false;
 }
 // Сайту из интернета Chrome даёт связаться с программой на этом же компьютере, только если человек
@@ -1046,9 +1049,17 @@ async function localAccess() {
   try { return (await navigator.permissions.query({ name: 'local-network-access' })).state; }
   catch (e) { return 'prompt'; }   // браузер без такой защиты
 }
+function ctlStarted() {
+  Remote.on = true;
+  $('ctlBarText').textContent = 'Вашим компьютером управляет ' + (S.chatWith?.name || 'собеседник');
+  $('ctlBar').hidden = false;
+  ctlSend({ type: 'ctl-ok' });
+}
 async function ctlAllow() {
   $('ctlAsk').hidden = true;
   stopRemote(false);
+  // Программа для Windows нажимает сама — помощник не нужен.
+  if (Desk) { Remote.desk = true; return ctlStarted(); }
   toast('Подключаемся к «Помощнику Звонилки»… Если браузер спросит о доступе к устройствам в локальной сети, нажмите «Разрешить».', 8000);
   let ws;
   try { ws = new WebSocket(HELPER_URL); } catch (e) { return helperMissing(); }
@@ -1059,10 +1070,7 @@ async function ctlAllow() {
     opened = true;
     clearTimeout(timer);
     Remote.ws = ws;
-    Remote.on = true;
-    $('ctlBarText').textContent = 'Вашим компьютером управляет ' + (S.chatWith?.name || 'собеседник');
-    $('ctlBar').hidden = false;
-    ctlSend({ type: 'ctl-ok' });
+    ctlStarted();
   };
   ws.onerror = () => { if (!opened) { clearTimeout(timer); failed(); } };
   ws.onclose = () => { if (Remote.ws === ws) stopRemote(true); };
@@ -1083,13 +1091,15 @@ function ctlHelp(title, text) {
   $('ctlHelp').hidden = false;
 }
 function onCtlEvent(e) {
-  if (!Remote.on || Remote.ws?.readyState !== 1 || e.length > 8) return;
-  Remote.ws.send(JSON.stringify(e));
+  if (!Remote.on || !Array.isArray(e) || e.length > 8) return;
+  if (Remote.desk) return Desk.send({ t: 'input', e });
+  if (Remote.ws?.readyState === 1) Remote.ws.send(JSON.stringify(e));
 }
 function stopRemote(notify) {
   const ws = Remote.ws;
   Remote.ws = null;
   if (ws) try { ws.close(); } catch (e) {}
+  if (Remote.desk) { Remote.desk = false; Desk.send({ t: 'inputStop' }); }
   $('ctlAsk').hidden = true;
   if (!Remote.on) return;
   Remote.on = false;
@@ -1826,7 +1836,7 @@ const Awake = {
   want: false, lock: null, pending: false, warned: false,
   async on() {
     this.want = true;
-    if (App) return;   // в приложении экран держит само приложение
+    if (App || Desk) return;   // в приложениях экран держат сами приложения
     if (!('wakeLock' in navigator)) {
       if (!this.warned && matchMedia('(pointer: coarse)').matches) {
         this.warned = true;
@@ -2288,6 +2298,7 @@ function onIncoming(c, text) {
   renderContacts();
   updateBadge();
   App?.ping?.();   // приложение на экране — короткий звук сообщения
+  Desk?.send({ t: 'msg', name: c.name, text: text.slice(0, 120) });
   toast(c.name + ': ' + (text.length > 80 ? text.slice(0, 80) + '…' : text), 4000);
   systemNotify('Сообщение от ' + c.name, text.slice(0, 120));
 }
@@ -2586,10 +2597,12 @@ function onOffer(c, d, topic) {
   systemNotify(c.name + ' звонит', 'Откройте звонилку, чтобы ответить', 'zvonilka-call');
   later('ringIn', Math.max(1000, 60000 - (Date.now() - d.ts)), () => { if (ringing?.d === d) missedCall(c, d.callId); });
   relaySend(c, 'sig', { t: 'ringing', callId: d.callId });   // звонящий увидит «телефон звонит»
+  Desk?.send({ t: 'ring', name: c.name });   // программа для Windows выводит окно на передний план
   if (pendingAccept === d.callId) { pendingAccept = null; acceptRing(); }
 }
 function stopRinging() {
   if (ringing) App?.ringDone(ringing.d.callId);   // телефон перестаёт звонить
+  if (ringing) Desk?.send({ t: 'ringEnd' });
   ringing = null;
   $('ring').hidden = true;
   Ringtone.stop();
@@ -2604,6 +2617,7 @@ function noteMissed(c) {
   saveContacts();
   renderContacts();
   toast('Пропущенный звонок: ' + c.name, 5000);
+  Desk?.send({ t: 'missed', name: c.name });
 }
 function declineRing() {
   if (!ringing) return;
@@ -2760,13 +2774,13 @@ function renderPush() {
   const iosBrowser = /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone;
   const enabled = window.Notification?.permission === 'granted' && !!Store.get('push', null);
   const btn = $('pushBtn');
-  btn.hidden = !!App || enabled || !contacts.length || (!Push.supported() && !iosBrowser);   // приложение уведомляет само
+  btn.hidden = !!App || !!Desk || enabled || !contacts.length || (!Push.supported() && !iosBrowser);   // приложения уведомляют сами
   btn.disabled = !Push.supported();
   btn.textContent = Push.supported() ? 'Включить уведомления о звонках'
     : 'Уведомления на iPhone: «Поделиться» → «На экран „Домой“», затем откройте звонилку оттуда';
 }
 async function systemNotify(title, body, tag = 'zvonilka') {
-  if (document.visibilityState === 'visible' || window.Notification?.permission !== 'granted') return;
+  if (Desk || document.visibilityState === 'visible' || window.Notification?.permission !== 'granted') return;
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg) await reg.showNotification(title, { body, tag, icon: 'icon-192.png' });
@@ -2851,9 +2865,10 @@ let appCall = '';
 function tellApp() {
   const name = S.chatWith?.name || 'Звонок';
   const st = S.active ? name : '';
-  if (!App || st === appCall) return;
+  if ((!App && !Desk) || st === appCall) return;
   appCall = st;
-  try { App.inCall(S.active, name); } catch (e) {}
+  if (App) try { App.inCall(S.active, name); } catch (e) {}
+  Desk?.send({ t: 'call', on: S.active });   // во время разговора компьютер не засыпает
 }
 // Мелодия звонка и звук сообщений — выбираются системным списком мелодий телефона.
 function renderSounds() {
