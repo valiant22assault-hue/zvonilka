@@ -294,7 +294,6 @@
   </div>
   <div id="pcCard" class="card" hidden>
     <div class="card-head"><h2><i data-i="screen"></i>Браузер и программа</h2></div>
-    <p id="pcText" class="hint"></p>
     <button id="pcLinkBtn" class="btn btn-ghost" type="button"></button>
   </div>
   <p class="credit">by Mikhail Zhuravlev</p>
@@ -2546,10 +2545,6 @@ function renderPc() {
   const on = (!!Desk || (onWindows && !App)) && !!window.crypto?.subtle;
   $('pcCard').hidden = !on;
   if (!on) return;
-  $('pcText').textContent = Me.sync
-    ? 'Связано: у программы и браузера на этом компьютере общие контакты и переписка. Звонки приходят и туда, и туда.'
-    : Desk ? 'Пользовались Звонилкой в браузере? Нажмите кнопку — откроется браузер, там нажмите «Связать». Контакты и переписка станут общими.'
-    : 'Установили программу Звонилка? Свяжите её с браузером: браузер спросит, открыть ли приложение, — нажмите «Открыть», а в программе — «Связать». Контакты и переписка станут общими.';
   $('pcLinkBtn').textContent = Desk ? 'Связать с браузером' : 'Связать с программой Звонилка';
 }
 
