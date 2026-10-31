@@ -99,6 +99,11 @@
 
   .controls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: center; gap: 12px; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
   #call.remote-on .controls { background: linear-gradient(transparent, rgba(0,0,0,.55)); }
+  #call.controlling #remoteVideo { cursor: crosshair; touch-action: none; }
+  .ctl-bar { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; z-index: 30; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 24px); padding: 6px 6px 6px 16px; border-radius: 999px; background: var(--danger); color: #fff; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.35); transform: translateX(-50%); }
+  .ctl-bar .btn { flex: none; width: auto; padding: 7px 14px; background: rgba(0,0,0,.25); color: #fff; }
+  .ctl-ask-btns { display: flex; gap: 10px; }
+  .ctl-ask-btns .btn { flex: 1; }
   .ctl { flex: none; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%; background: var(--glass); color: #fff; transition: background .15s; }
   .ctl:hover:not(:disabled) { background: rgba(22,24,28,.75); }
   .preview .ctl { width: 44px; height: 44px; }
@@ -350,6 +355,7 @@
     <button id="speakerBtn" class="ctl" type="button" title="Громкая связь" hidden><i data-i="speaker"></i></button>
     <button id="flipBtn" class="ctl" type="button" title="Повернуть камеру" hidden><i data-i="flip"></i></button>
     <button id="screenBtn" class="ctl" type="button"><i data-i="screen"></i></button>
+    <button id="ctlBtn" class="ctl" type="button" title="Управлять компьютером собеседника" hidden><i data-i="pointer"></i></button>
     <button id="chatBtn" class="ctl" type="button" title="Чат"><i data-i="chat"></i><span id="chatBadge" class="badge" hidden></span></button>
     <button id="linkBtn" class="ctl" type="button" title="Скопировать ссылку"><i data-i="link"></i></button>
     <button id="hangBtn" class="ctl hang" type="button" title="Завершить"><i data-i="phone"></i></button>
@@ -404,6 +410,18 @@
     <button id="handoffHomeBtn" class="btn btn-link" type="button">На главную</button>
   </div>
 </section>
+
+<div id="ctlAsk" class="ring" hidden>
+  <div class="ring-card">
+    <h2 id="ctlAskTitle"></h2>
+    <p class="sub">Для этого на компьютере должна быть запущена программа «Помощник Звонилки». Остановить можно в любой момент.</p>
+    <div class="ctl-ask-btns">
+      <button id="ctlDeny" class="btn btn-ghost" type="button">Нет</button>
+      <button id="ctlAllow" class="btn btn-primary" type="button">Разрешить</button>
+    </div>
+  </div>
+</div>
+<div id="ctlBar" class="ctl-bar" hidden><span id="ctlBarText"></span><button id="ctlBarStop" class="btn" type="button">Остановить</button></div>
 
 <div id="ring" class="ring" hidden>
   <div class="ring-card">
@@ -488,6 +506,7 @@ const ICONS = {
   check: '<path d="M20 6L9 17l-5-5"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
   speaker: '<path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+  pointer: '<path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/>',
 };
 ICONS.contacts = '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><circle cx="12" cy="8" r="2"/><path d="M15 13a3 3 0 1 0-6 0"/>';
 ICONS.gear = '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>';
@@ -515,6 +534,7 @@ const S = {
   contact: null, callId: null, lastContact: null,   // звонок контакту через реле
   chatWith: null, hs: null,   // контакт, с чьей перепиской связан чат звонка, и проверка, что собеседник — он
   screen: null, micOn: true, speaker: false,
+  ctlOn: false,   // мы управляем компьютером собеседника
   remote: { video: false, mic: true, known: false },
   timers: {}, tickTimer: null, startedAt: 0,
 };
@@ -779,6 +799,9 @@ function updateControls() {
   $('flipBtn').disabled = S.camBusy;
   $('screenBtn').classList.toggle('is-on', !!S.screen);
   $('screenBtn').title = S.screen ? 'Остановить показ экрана' : 'Показать экран';
+  $('ctlBtn').hidden = !(S.connected && S.remote.screen && S.chatWith);
+  $('ctlBtn').classList.toggle('is-on', !!S.ctlOn);
+  $('ctlBtn').title = S.ctlOn ? 'Остановить управление' : 'Управлять компьютером собеседника';
   $('speakerBtn').hidden = !App?.callAudio;
   $('speakerBtn').classList.toggle('is-on', S.speaker);
   $('speakerBtn').title = S.speaker ? 'Выключить громкую связь' : 'Громкая связь';
@@ -945,7 +968,8 @@ const Meter = {
 async function toggleScreen() {
   if (S.screen) return stopScreen();
   let track;
-  try { track = (await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })).getVideoTracks()[0]; }
+  // Сразу предлагаем «Весь экран»: только так можно управлять компьютером удалённо.
+  try { track = (await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'monitor' }, audio: false })).getVideoTracks()[0]; }
   catch (e) { return; }
   if (!S.media) { track.stop(); return; }
   track.contentHint = 'detail';
@@ -958,6 +982,7 @@ function stopScreen() {
   if (!t) return;
   S.screen = null;
   t.stop();
+  stopRemote(true);   // экран больше не виден — управлять нельзя
   videoChanged();
 }
 
@@ -967,7 +992,7 @@ function sendState() {
   updateChatInput();
   const dc = S.dc;
   if (!dc || !dc.open || !S.media) return;
-  try { dc.send({ type: 'state', video: !!ownVideo(), mic: S.micOn }); } catch (e) {}
+  try { dc.send({ type: 'state', video: !!ownVideo(), mic: S.micOn, screen: !!S.screen }); } catch (e) {}
 }
 function onData(d) {
   if (!d || typeof d !== 'object') return;
@@ -975,11 +1000,152 @@ function onData(d) {
   else if (d.type === 'chat' && typeof d.text === 'string') onChat(d);
   else if (d.type === 'who' && typeof d.tag === 'string' && typeof d.nonce === 'string') onWho(d);
   else if (d.type === 'proof' && typeof d.mac === 'string') onProof(d);
+  else if (d.type === 'ctl' && Array.isArray(d.e)) onCtlEvent(d.e);
+  else if (d.type === 'ctl-ask') onCtlAsk();
+  else if (d.type === 'ctl-ok') onCtlOk();
+  else if (d.type === 'ctl-no') onCtlNo(d.reason);
+  else if (d.type === 'ctl-stop') { stopRemote(false); endControl(false); }
 }
 function onState(d) {
-  S.remote = { video: !!d.video, mic: !!d.mic, known: true };
+  S.remote = { video: !!d.video, mic: !!d.mic, screen: !!d.screen, known: true };
+  if (!S.remote.screen) endControl(false);
   updateRemoteView();
+  updateControls();
   callAudio();
+}
+
+// ---------- удалённая помощь: управление компьютером собеседника ----------
+// Тот, кто помогает, видит показанный экран и нажимает «Управлять». Собеседник разрешает — и его звонилка
+// передаёт движения мыши и нажатия клавиш программе «Помощник Звонилки» на его же компьютере (127.0.0.1).
+// Только с контактом (собеседник проверен ключом пары), только «Весь экран», остановить — в любой момент.
+
+const HELPER_URL = 'ws://127.0.0.1:47231/';   // тот же номер — в helper/ZvonilkaHelper.cs
+const Remote = { ws: null, on: false };      // нашим компьютером управляют
+
+function ctlSend(msg) {
+  try { if (S.dc?.open) S.dc.send(msg); } catch (e) {}
+}
+function onCtlAsk() {
+  const c = S.chatWith;
+  if (!c) return ctlSend({ type: 'ctl-no', reason: 'contact' });
+  const surface = S.screen?.getSettings?.().displaySurface;
+  if (!S.screen || (surface && surface !== 'monitor')) return ctlSend({ type: 'ctl-no', reason: 'screen' });
+  $('ctlAskTitle').textContent = c.name + ' просит управлять вашим компьютером';
+  $('ctlAsk').hidden = false;
+}
+function ctlAllow() {
+  $('ctlAsk').hidden = true;
+  stopRemote(false);
+  toast('Подключаемся к «Помощнику Звонилки»… Если браузер спросит о доступе к устройствам, нажмите «Разрешить».', 6000);
+  let ws;
+  try { ws = new WebSocket(HELPER_URL); } catch (e) { return helperMissing(); }
+  let opened = false;
+  const timer = setTimeout(() => { if (!opened) { try { ws.close(); } catch (e) {} helperMissing(); } }, 30000);
+  ws.onopen = () => {
+    opened = true;
+    clearTimeout(timer);
+    Remote.ws = ws;
+    Remote.on = true;
+    $('ctlBarText').textContent = 'Вашим компьютером управляет ' + (S.chatWith?.name || 'собеседник');
+    $('ctlBar').hidden = false;
+    ctlSend({ type: 'ctl-ok' });
+  };
+  ws.onerror = () => { if (!opened) { clearTimeout(timer); helperMissing(); } };
+  ws.onclose = () => { if (Remote.ws === ws) stopRemote(true); };
+}
+function helperMissing() {
+  toast('Не получилось: запустите программу «Помощник Звонилки» и снова нажмите «Разрешить».', 8000);
+  ctlSend({ type: 'ctl-no', reason: 'helper' });
+}
+function onCtlEvent(e) {
+  if (!Remote.on || Remote.ws?.readyState !== 1 || e.length > 8) return;
+  Remote.ws.send(JSON.stringify(e));
+}
+function stopRemote(notify) {
+  const ws = Remote.ws;
+  Remote.ws = null;
+  if (ws) try { ws.close(); } catch (e) {}
+  $('ctlAsk').hidden = true;
+  if (!Remote.on) return;
+  Remote.on = false;
+  $('ctlBar').hidden = true;
+  if (notify) ctlSend({ type: 'ctl-stop' });
+}
+
+// Сторона того, кто помогает.
+function toggleControl() {
+  if (S.ctlOn) return endControl(true);
+  ctlSend({ type: 'ctl-ask' });
+  toast('Спросили разрешение у собеседника…', 4000);
+}
+function onCtlOk() {
+  S.ctlOn = true;
+  $('remoteVideo').classList.remove('cover');   // для точных координат экран должен быть виден целиком
+  $('call').classList.add('controlling');
+  updateControls();
+  toast('Вы управляете компьютером собеседника. Остановить — снова нажмите кнопку с курсором.', 6000);
+}
+function onCtlNo(reason) {
+  toast({
+    contact: 'Управлять можно только компьютером своего контакта.',
+    screen: 'Попросите собеседника показать весь экран: кнопка с монитором → «Весь экран».',
+    helper: 'У собеседника не запущен «Помощник Звонилки».',
+    denied: 'Собеседник не разрешил управление.',
+  }[reason] || 'Управление не включилось.', 6000);
+}
+function endControl(notify) {
+  if (!S.ctlOn) return;
+  S.ctlOn = false;
+  $('call').classList.remove('controlling');
+  updateControls();
+  if (notify) ctlSend({ type: 'ctl-stop' });
+}
+// Точка на показанном экране в долях (0…1) с учётом полей вокруг видео.
+function ctlPoint(e, clamp) {
+  const v = $('remoteVideo'), r = v.getBoundingClientRect();
+  if (!v.videoWidth || !v.videoHeight) return null;
+  const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+  const w = v.videoWidth * s, h = v.videoHeight * s;
+  const x = (e.clientX - r.left - (r.width - w) / 2) / w, y = (e.clientY - r.top - (r.height - h) / 2) / h;
+  if (!clamp && (x < 0 || y < 0 || x > 1 || y > 1)) return null;
+  return [x, y].map(n => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000);
+}
+let ctlMoveAt = 0;
+function setupControlInput() {
+  const v = $('remoteVideo');
+  v.addEventListener('pointermove', e => {
+    if (!S.ctlOn || e.timeStamp - ctlMoveAt < 30) return;
+    const p = ctlPoint(e);
+    if (!p) return;
+    ctlMoveAt = e.timeStamp;
+    ctlSend({ type: 'ctl', e: ['m', ...p] });
+  });
+  v.addEventListener('pointerdown', e => {
+    if (!S.ctlOn) return;
+    const p = ctlPoint(e);
+    if (!p) return;
+    e.preventDefault();
+    try { v.setPointerCapture(e.pointerId); } catch (err) {}
+    ctlSend({ type: 'ctl', e: ['d', e.button, ...p] });
+  });
+  v.addEventListener('pointerup', e => {
+    if (!S.ctlOn) return;
+    ctlSend({ type: 'ctl', e: ['u', e.button, ...ctlPoint(e, true) || [0, 0]] });
+  });
+  v.addEventListener('wheel', e => {
+    if (!S.ctlOn) return;
+    e.preventDefault();
+    ctlSend({ type: 'ctl', e: ['w', Math.sign(e.deltaY)] });
+  }, { passive: false });
+  v.addEventListener('contextmenu', e => { if (S.ctlOn) e.preventDefault(); });
+  // Клавиатура уходит собеседнику целиком — кроме набора в нашем собственном чате.
+  const key = down => e => {
+    if (!S.ctlOn || /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    e.preventDefault();
+    ctlSend({ type: 'ctl', e: ['k', down ? 1 : 0, e.code, e.key, (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.metaKey ? 4 : 0)] });
+  };
+  addEventListener('keydown', key(true), true);
+  addEventListener('keyup', key(false), true);
 }
 function updateRemoteView() {
   const live = S.connected;
@@ -1337,6 +1503,8 @@ function dropCall() {
   if (S.chatWith && S.chatWith !== S.contact) { S.chatWith = null; resetChat(); }
   S.hs = null;
   Ringback.stop();
+  stopRemote(false);
+  endControl(false);
   cancel('join', 'drop', 'stateFallback', 'audioRoute');
   clearInterval(S.tickTimer);
   const call = S.call, dc = S.dc;
@@ -2958,7 +3126,12 @@ document.addEventListener('visibilitychange', () => {
   pullCallLog();
   Push.refresh();
 })();
-$('remoteVideo').onclick = e => e.currentTarget.classList.toggle('cover');
+$('remoteVideo').onclick = e => { if (!S.ctlOn) e.currentTarget.classList.toggle('cover'); };
+$('ctlBtn').onclick = toggleControl;
+$('ctlAllow').onclick = ctlAllow;
+$('ctlDeny').onclick = () => { $('ctlAsk').hidden = true; ctlSend({ type: 'ctl-no', reason: 'denied' }); };
+$('ctlBarStop').onclick = () => stopRemote(true);
+setupControlInput();
 $('unmuteBtn').onclick = () => { $('remoteVideo').play().catch(() => {}); $('unmuteBtn').hidden = true; };
 $('fileWarn').hidden = location.protocol !== 'file:';
 

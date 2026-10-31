@@ -48,7 +48,7 @@ public class ZvService extends Service implements RelayCore.Events {
     static final String ACTION_DECLINE = "zv.DECLINE", ACTION_HANGUP = "zv.HANGUP", EXTRA_CALL = "callId";
     // Звук сообщений играем сами (его можно выбрать), поэтому канал «chat» беззвучный; старый «messages» был со звуком.
     private static final String CH_LINK = "link", CH_INCALL = "incall", CH_CALL = "calls", CH_MSG = "chat", CH_MISSED = "missed";
-    private static final int ID_FG = 1, ID_RING = 2, ID_MSG = 3, ID_MISSED = 4;
+    private static final int ID_FG = 1, ID_RING = 2, ID_MSG = 3, ID_MISSED = 4, ID_INCALL = 5;
     private static final String TAG = "zv";
 
     static volatile ZvService instance;
@@ -128,6 +128,7 @@ public class ZvService extends Service implements RelayCore.Events {
 
     @Override public void onDestroy() {
         instance = null;
+        nm.cancel(ID_INCALL);
         core.shutdown();
         stopRingtone();
         release(ringLock);
@@ -176,6 +177,9 @@ public class ZvService extends Service implements RelayCore.Events {
                 else am.setSpeakerphoneOn(false);
             }
             foreground();
+            // «Идёт звонок» — отдельное уведомление: его можно просто убрать, даже если строка «на связи» скрыта.
+            if (on) nm.notify(ID_INCALL, callNotification());
+            else nm.cancel(ID_INCALL);
         });
     }
 
@@ -233,8 +237,10 @@ public class ZvService extends Service implements RelayCore.Events {
 
     // ---------- уведомление службы ----------
 
+    // Уведомление службы — всегда «на связи»: если его скрыли, Android не показывает и его замену,
+    // поэтому «Идёт звонок» живёт отдельно (ID_INCALL). Во время звонка служба помечена ещё и как микрофонная.
     private void foreground() {
-        Notification n = inCall ? callNotification() : linkNotification();
+        Notification n = linkNotification();
         int type = 0;
         if (Build.VERSION.SDK_INT >= 34) type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
         boolean mic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
@@ -425,7 +431,7 @@ public class ZvService extends Service implements RelayCore.Events {
         main.post(() -> {
             if (on == online) return;
             online = on;
-            if (!inCall) foreground();
+            foreground();
         });
     }
 
