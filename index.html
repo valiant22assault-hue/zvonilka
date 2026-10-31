@@ -485,8 +485,9 @@ const CONFIG = {
   iceServers: [
     // STUN только сообщает браузеру его внешний адрес. Яндекс и Sipnet — на случай, если Google недоступен.
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun.rtc.yandex.net:3478', 'stun:stun.sipnet.ru:3478'] },
-    // TURN нужен, когда прямое соединение невозможно (мобильный интернет, офисные сети):
-    // { urls: 'turn:turn.example.com:3478', username: 'user', credential: 'password' },
+    // TURN — посредник для самого разговора: через него звонок идёт, только когда напрямую соединиться не выходит
+    // (сеть провайдера, блокировки). Бесплатный ExpressTURN, 1000 ГБ в месяц; логин и пароль видны в коде страницы.
+    { urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'], username: '000000002108864532', credential: 'LAE6c1HaWOZplIW6PJ2iq+/o/ds=' },
   ],
   // Сигнальный сервер PeerJS. null — бесплатный публичный (0.peerjs.com).
   // Свой: { host: 'peer.example.com', port: 443, path: '/', secure: true }
@@ -1431,9 +1432,7 @@ function callHost(hostId) {
     });
     dc.on('close', () => { if (S.dc === dc) S.dc = null; });
     later('join', CONFIG.joinTimeout, () => {
-      if (S.call === call && !S.connected) {
-        failCall('Не удалось соединиться. Скорее всего, сеть не пропускает прямое соединение — поможет TURN-сервер (настраивается в файле).');
-      }
+      if (S.call === call && !S.connected) failCall(noRoute(call));
     });
   });
   peer.on('call', call => call.close());
@@ -1457,7 +1456,7 @@ function answerCall(call) {
   watchCall(call);
   setStatus('Соединяемся с собеседником…', { share: false });
   later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall('Собеседник не смог подключиться: сеть не пропускает прямое соединение.');
+    if (S.call === call && !S.connected) failCall(noRoute(call));
   });
 }
 
@@ -1493,9 +1492,7 @@ function onIce(call, st) {
   } else if (st === 'failed') {
     // Без сервера отвечающий ждёт, пока собеседник откроет ответную ссылку: до этого проверки связи неизбежно не проходят.
     if (S.mode === 'direct' && S.role === 'answerer' && !S.connected) return;
-    failCall(S.connected
-      ? 'Связь оборвалась.'
-      : 'Сеть не пропускает прямое соединение. Поможет TURN-сервер (настраивается в файле).');
+    failCall(S.connected ? 'Связь оборвалась.' : noRoute(call));
   }
 }
 
@@ -1593,6 +1590,15 @@ function failCall(msg) {
   dropCall();
   setStatus(msg, { retry: true });
 }
+// Чья сеть не пропустила звонок: у кого в визитке нет ни внешнего адреса, ни адреса на сервере-посреднике,
+// до того снаружи не достучаться.
+function noRoute(call) {
+  const pc = call?.peerConnection;
+  const reachable = d => / typ (srflx|relay) /.test(d.sdp);
+  if (pc?.localDescription && !reachable(pc.localDescription)) return 'Не удалось соединиться: ваша сеть не пропускает звонки. Попробуйте другой Wi-Fi или мобильный интернет.';
+  if (pc?.remoteDescription && !reachable(pc.remoteDescription)) return 'Не удалось соединиться: сеть собеседника не пропускает звонки. Пусть попробует другой Wi-Fi или мобильный интернет.';
+  return 'Не удалось соединиться: сеть не пропустила звонок. Попробуйте позвонить ещё раз через минуту.';
+}
 
 function onPeerError(err) {
   console.warn('PeerJS:', err.type, err);
@@ -1670,11 +1676,18 @@ function newDirectPc() {
   slimCodecs(pc);
   return pc;
 }
+// Визитка уходит один раз, поэтому ждём, пока в ней появятся адреса, по которым до нас достучатся снаружи:
+// внешний (srflx) и на сервере-посреднике (relay). Обычно это доля секунды, но проснувшемуся телефону
+// бывает нужно больше — без этих адресов звонок не соединится, так что ждём их до 8 секунд.
 function iceGathered(pc) {
   return new Promise(resolve => {
-    if (pc.iceGatheringState === 'complete') return resolve();
-    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') resolve(); });
-    setTimeout(resolve, 3000);
+    const has = t => (pc.localDescription?.sdp || '').includes(' typ ' + t + ' ');
+    const check = () => { if (pc.iceGatheringState === 'complete' || (has('srflx') && has('relay'))) resolve(); };
+    pc.addEventListener('icegatheringstatechange', check);
+    pc.addEventListener('icecandidate', check);
+    check();
+    setTimeout(() => { if (has('srflx') || has('relay')) resolve(); }, 3000);
+    setTimeout(resolve, 8000);
   });
 }
 
@@ -1799,7 +1812,7 @@ async function applyAnswer(data) {
   $('answerInput').value = '';
   setStatus('Соединяемся с собеседником…', { share: false });
   later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую: сеть не пропускает прямое соединение. Поможет TURN-сервер (настраивается в файле).');
+    if (S.call === call && !S.connected) failCall(noRoute(call));
   });
 }
 
@@ -2911,7 +2924,7 @@ async function onCallSignal(c, d) {
     relayClear(c, 'call');
     setStatus('Соединяемся…', { share: false });
     later('join', CONFIG.joinTimeout, () => {
-      if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую. Поможет TURN-сервер (настраивается в файле).');
+      if (S.call === call && !S.connected) failCall(noRoute(call));
     });
   } else if (d.t === 'ringing' && S.awaiting) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
   else if (d.t === 'decline') {
@@ -2999,7 +3012,7 @@ async function acceptRing() {
   if (S.call !== call) return;
   await relaySend(c, 'sig', { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp });
   later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall('Не удалось соединиться напрямую. Поможет TURN-сервер (настраивается в файле).');
+    if (S.call === call && !S.connected) failCall(noRoute(call));
   });
 }
 
