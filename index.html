@@ -143,6 +143,8 @@
   .btn-sm { width: auto; padding: 8px 12px; font-size: 14px; }
   .muted-s { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
   #nameForm, #inviteBox { margin-bottom: 14px; }
+  .btn-inline { padding: 0; color: var(--text); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+  .btn-inline.armed { color: var(--danger); font-weight: 600; }
   .contacts { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
   .contact { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 12px; cursor: pointer; }
   .contact:hover { background: rgba(255,255,255,.05); }
@@ -251,7 +253,7 @@
       <button class="btn btn-primary" type="submit">Сохранить</button>
     </form>
     <div id="inviteBox" hidden>
-      <p class="muted-s">Отправьте эту ссылку человеку. Когда её откроют, вы появитесь друг у друга в контактах. Ссылка одноразовая — не пересылайте её другим.</p>
+      <p class="muted-s">Отправьте эту ссылку человеку. Когда её откроют, вы появитесь друг у друга в контактах. Ссылка одноразовая и действует 12 часов — до <b id="inviteUntil"></b>.</p>
       <div class="linkbox">
         <input id="inviteInput" readonly aria-label="Ссылка-приглашение">
         <button id="inviteCopyBtn" class="btn btn-primary" type="button">Копировать</button>
@@ -260,7 +262,7 @@
     <ul id="contactList" class="contacts"></ul>
     <p id="editHint" class="hint" hidden>Новые имена видны только вам. Своё имя собеседники увидят в следующих приглашениях и звонках. Корзина удаляет контакт вместе с перепиской — вернуть его можно только новым приглашением.</p>
     <p id="contactsEmpty" class="hint">Пока пусто. Нажмите «Добавить» и отправьте ссылку — человек появится здесь, и вы сможете писать и звонить друг другу без пересылки ссылок.</p>
-    <p id="invitesWaiting" class="hint" hidden></p>
+    <p id="invitesWaiting" class="hint" hidden><span id="invitesText"></span> <button id="invitesCancel" class="btn-inline" type="button">Отменить</button></p>
     <button id="pushBtn" class="btn btn-link" type="button" hidden>Включить уведомления о звонках</button>
     <div id="relayRow" class="relay-row" hidden><span id="relayDot" class="dot"></span><span id="relayText"></span></div>
   </div>
@@ -357,7 +359,7 @@
 <section id="addScreen" class="screen center">
   <div class="card">
     <h2 id="addTitle">Вас приглашают в контакты</h2>
-    <p class="sub">После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.</p>
+    <p id="addSub" class="sub">После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.</p>
     <form id="addForm" class="join">
       <input id="addName" placeholder="Как вас зовут?" maxlength="40" autocomplete="name" aria-label="Ваше имя">
       <button class="btn btn-primary" type="submit">Добавить</button>
@@ -1918,35 +1920,63 @@ const isOnline = c => (Relay.presence.get(c.id) || []).some(p => p && p.on && Da
 
 // ---------- приглашения ----------
 
+// Каждое «Добавить» — новая одноразовая ссылка, она действует 12 часов (срок записан в самой ссылке).
+// Принятие ссылки ждём ещё неделю после срока: подтверждение могло прийти, пока устройство было выключено.
+const INVITE_TTL = 12 * 3600000, INVITE_GRACE = 7 * 86400000;
 async function createContactInvite() {
   if (!Me.name) {
     $('nameInput').focus();
     return toast('Сначала напишите, как вас зовут');
   }
-  const inv = { secret: randomId(32), created: Date.now() };
+  const inv = { secret: randomId(32), created: Date.now(), expires: Date.now() + INVITE_TTL };
   invites.push(inv);
   saveInvites();
   Relay.start();
   await watchSecret(inv.secret);
-  $('inviteInput').value = shareBase() + '#add=' + Me.id + '.' + inv.secret + '.' + b64uEncode(te.encode(Me.name));
+  $('inviteInput').value = shareBase() + '#add=' + Me.id + '.' + inv.secret + '.' + b64uEncode(te.encode(Me.name)) + '.' + inv.expires.toString(36);
+  $('inviteUntil').textContent = timeOf(inv.expires);
   $('inviteBox').hidden = false;
   renderContacts();
 }
+const activeInvites = () => invites.filter(i => i.expires > Date.now());
+// Приглашения без срока (из прошлых версий) и давно истёкшие — убираем совсем.
+function pruneInvites() {
+  const keep = invites.filter(i => i.expires && i.expires + INVITE_GRACE > Date.now());
+  if (keep.length === invites.length) return;
+  for (const inv of invites) if (!keep.includes(inv)) pairOf(inv.secret).then(({ topic }) => Relay.owners.delete(topic));
+  invites = keep;
+  saveInvites();
+}
+// Отменить все неиспользованные ссылки: по ним больше никто не добавится.
+function cancelInvites() {
+  for (const inv of invites) pairOf(inv.secret).then(({ topic }) => Relay.owners.delete(topic));
+  invites = [];
+  saveInvites();
+  $('inviteBox').hidden = true;
+  $('inviteInput').value = '';
+  renderContacts();
+  toast('Приглашения отменены');
+}
 function parseAddLink(hash) {
-  const m = String(hash || '').match(/#add=([A-Za-z0-9_-]{16,32})\.([A-Za-z0-9_-]{40,48})\.([A-Za-z0-9_-]*)/);
+  const m = String(hash || '').match(/#add=([A-Za-z0-9_-]{16,32})\.([A-Za-z0-9_-]{40,48})\.([A-Za-z0-9_-]*)(?:\.([0-9a-z]{1,12}))?/);
   if (!m) return null;
   let name = '';
   try { name = td.decode(b64uDecode(m[3])).trim().slice(0, 40); } catch (e) {}
-  return { id: m[1], secret: m[2], name: name || 'Контакт', raw: m[0].slice(5) };
+  const expires = m[4] ? parseInt(m[4], 36) : 0;   // у старых ссылок срока нет — они больше не действуют
+  return { id: m[1], secret: m[2], name: name || 'Контакт', raw: m[0].slice(5), expired: !(expires > Date.now()) };
 }
 
 let pendingAdd = null;
 function openAddScreen(add) {
   pendingAdd = add;
-  $('addTitle').textContent = add.name + ' приглашает вас в контакты';
+  $('addTitle').textContent = add.expired ? 'Приглашение устарело' : add.name + ' приглашает вас в контакты';
+  $('addSub').textContent = add.expired
+    ? 'Ссылка-приглашение действует 12 часов. Попросите прислать новую.'
+    : 'После этого вы сможете переписываться и звонить друг другу в один клик, без пересылки ссылок.';
+  $('addForm').hidden = add.expired;
   $('addName').value = Me.name;
   // Ссылку открыли в браузере телефона, а контакты нужны в приложении — передаём приглашение туда.
-  $('openInApp').hidden = App || !onAndroid;
+  $('openInApp').hidden = App || !onAndroid || add.expired;
   // Если приложения нет, браузер просто останется на этой странице.
   $('openInApp').href = 'intent://add/' + add.raw + '#Intent;scheme=zvonilka;package=io.github.zvonilka.app;S.browser_fallback_url='
     + encodeURIComponent(location.href) + ';end';
@@ -1954,7 +1984,7 @@ function openAddScreen(add) {
 }
 async function acceptContactLink() {
   const add = pendingAdd;
-  if (!add) return;
+  if (!add || add.expired) return;
   const name = $('addName').value.trim().slice(0, 40);
   if (!name) return $('addName').focus();
   if (add.id === Me.id) return toast('Это ваша собственная ссылка — отправьте её собеседнику', 5000);
@@ -2226,8 +2256,12 @@ function renderContacts() {
     renderContactList();
   }
   $('contactsEmpty').hidden = contacts.length > 0;
-  $('invitesWaiting').hidden = !invites.length;
-  $('invitesWaiting').textContent = 'Ждём, пока примут приглашение: ' + invites.length;
+  pruneInvites();
+  const active = activeInvites();
+  // Показанная ссылка истекла — прячем её, чтобы не отправили устаревшую.
+  if (!$('inviteBox').hidden && !active.some(i => $('inviteInput').value.includes(i.secret))) $('inviteBox').hidden = true;
+  $('invitesWaiting').hidden = !active.length;
+  $('invitesText').textContent = 'Ссылок-приглашений, которые ещё не приняли: ' + active.length + '.';
   renderPush();
   renderRelay();
 }
@@ -2852,7 +2886,20 @@ resetChat();
 updateChatInput();
 
 // Контакты и переписка
-$('addContactBtn').onclick = createContactInvite;
+$('addContactBtn').onclick = () => createContactInvite();
+// «Отменить» → «Точно отменить?» → отменить: случайно не нажать.
+$('invitesCancel').onclick = () => {
+  const b = $('invitesCancel');
+  if (!b.classList.contains('armed')) {
+    b.classList.add('armed');
+    b.textContent = 'Точно отменить? Ссылки перестанут работать';
+    setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Отменить'; }, 8000);
+    return;
+  }
+  b.classList.remove('armed');
+  b.textContent = 'Отменить';
+  cancelInvites();
+};
 $('nameForm').onsubmit = e => {
   e.preventDefault();
   if (saveMyName($('nameInput').value) && editingNames) toast('Имя сохранено');
@@ -2899,6 +2946,7 @@ document.addEventListener('visibilitychange', () => {
 (async function startContacts() {
   if (!window.crypto?.subtle || !window.WebSocket) { $('contactsCard').hidden = true; return; }
   pendingAccept = App?.takeAccept() || null;   // приложение открыли кнопкой «Ответить»
+  pruneInvites();   // приглашения прошлых версий (без срока) и давно истёкшие
   Relay.presenceTopic = await presenceTopicOf(Me.id);
   if (contacts.length || invites.length) {
     for (const c of contacts) await watchContact(c);
