@@ -7,10 +7,12 @@
 //
 // Сборка (компилятор есть в Windows, библиотеки WebView2 — из пакета Microsoft.Web.WebView2):
 //   csc /target:winexe /win32icon:../helper/icon.ico /r:Microsoft.Web.WebView2.Core.dll /r:Microsoft.Web.WebView2.WinForms.dll
-//       /r:System.Web.Extensions.dll /r:Microsoft.CSharp.dll /resource:<каждая библиотека>
-//       ZvonilkaDesktop.cs ..\helper\RemoteInput.cs
+//       /r:System.Web.Extensions.dll /r:System.Net.Http.dll /r:Microsoft.CSharp.dll /resource:<каждая библиотека>
+//       /resource:..\index.html,page.html ZvonilkaDesktop.cs ..\helper\RemoteInput.cs
+// (встроенная копия страницы — на случай, если сайт недоступен).
 // Для проверки: --portable (не устанавливать), --dev (отдельная копия со своими данными, страницей можно
-// управлять через порт отладки 9333), --url=адрес, --selftest --dry --log=путь, --tray (запуск в трей).
+// управлять через порт отладки 9333; с --site-down — будто сайт недоступен), --url=адрес, --selftest --dry
+// --log=путь, --tray (запуск в трей).
 
 using System;
 using System.Collections.Generic;
@@ -18,6 +20,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -44,7 +48,7 @@ static class Program
     public const string Home = "https://valiant22assault-hue.github.io/zvonilka/";
     // --dev: отдельная копия для проверки — свои данные, настройки и окно, установленной Звонилке не мешает.
     public static string Name = "Zvonilka";
-    public static bool Dev;
+    public static bool Dev, SiteDown;
     public static string AppDir { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Name); } }
     public static string InstalledExe { get { return Path.Combine(AppDir, "Zvonilka.exe"); } }
     static string OpenFile { get { return Path.Combine(AppDir, "open.txt"); } }
@@ -62,6 +66,7 @@ static class Program
             else if (a == "--tray") tray = true;
             else if (a == "--selftest") selftest = true;
             else if (a == "--dev") { Name = "Zvonilka.Dev"; portable = Dev = true; }
+            else if (a == "--site-down" && Dev) SiteDown = true;   // проверка: будто сайт заблокирован
             else if (a == "--dry") RemoteInput.Dry = true;   // удалённая помощь только записывается
             else if (a.StartsWith("--url=")) url = a.Substring(6);
             else if (a.StartsWith("--log=")) logPath = a.Substring(6);
@@ -69,6 +74,8 @@ static class Program
         }
         RemoteInput.Log = Log;
         DpiAware();
+        // GitHub принимает только TLS 1.2 и новее, а без этой строки .NET может предложить старый.
+        ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
         if (!portable && !SamePath(Application.ExecutablePath, InstalledExe))
         {
             Install(open);
@@ -155,6 +162,8 @@ static class Program
                 try { File.Copy(Application.ExecutablePath, InstalledExe, true); break; }
                 catch (IOException) { if (i >= 10) throw; Thread.Sleep(500); }
             }
+            // Скачанная прежней версией страница могла быть старше встроенной в новую.
+            try { File.Delete(Path.Combine(AppDir, "page.html")); } catch { }
             foreach (string name in new[] { "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll" })
                 Extract(name, name);
             Extract("WebView2Loader." + Arch() + ".dll", "WebView2Loader.dll");
@@ -263,6 +272,7 @@ class MainForm : Form
     readonly CaptionBar caption;
     readonly float scale;
     CoreWebView2Controller controller;
+    CoreWebView2Environment env;
     string pendingOpen;   // ссылка zvonilka:, которую откроем, когда загрузится страница
     bool allowShow, quitting, keepNormalSize, pageReady;
     Size normalSize;
@@ -362,7 +372,7 @@ class MainForm : Form
                 "--disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling" +
                 (Program.Dev ? " --remote-debugging-port=9333" : ""));   // проверочная копия: управлять страницей из теста
             opts.Language = "ru";
-            CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Program.AppDir, "Data"), opts);
+            env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Program.AppDir, "Data"), opts);
             await web.EnsureCoreWebView2Async(env);
         }
         catch (WebView2RuntimeNotFoundException)
@@ -411,7 +421,88 @@ class MainForm : Form
             if (pageReady && pendingOpen != null) { string h = pendingOpen; pendingOpen = null; OpenLink(h); }
         };
         if (selftest) core.NavigationCompleted += (s, e) => SelfTest();
-        web.Source = new Uri(startUrl);
+        core.AddWebResourceRequestedFilter(startUrl.Split('#', '?')[0] + "*", CoreWebView2WebResourceContext.Document);
+        core.WebResourceRequested += OnPageRequested;
+        web.Source = new Uri(Fresh(startUrl));
+    }
+
+    // ---------- страница: с сайта, а если он недоступен — своя копия ----------
+    // Сайт могут заблокировать, или интернета нет при запуске. Тогда показываем последнюю страницу, которую
+    // удалось скачать (page.html рядом с программой), или встроенную в программу. Адрес тот же, поэтому
+    // контакты и переписка на месте, а звонки и сообщения идут через реле — сайт для них не нужен.
+
+    static readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+    static string SavedPage { get { return Path.Combine(Program.AppDir, "page.html"); } }
+    const string PageMarker = "window.zvDesk";   // страница умеет работать с программой (как проверка в приложении для Android)
+
+    async void OnPageRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        if (e.Request.Method != "GET") return;
+        CoreWebView2Deferral deferral = e.GetDeferral();
+        try
+        {
+            string html = await FetchPage(e.Request.Uri);
+            if (html != null)
+            {
+                try { File.WriteAllText(SavedPage, html, Encoding.UTF8); } catch { }
+            }
+            else
+            {
+                html = OwnPage();
+                Program.Log("сайт недоступен — своя копия страницы");
+            }
+            if (html == null) return;   // пусть браузер сам покажет ошибку
+            e.Response = env.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(html)), 200, "OK",
+                "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
+        }
+        catch (Exception ex) { Program.Log("страница: " + ex.Message); }
+        finally { deferral.Complete(); }
+    }
+
+    static async Task<string> FetchPage(string uri)
+    {
+        if (Program.SiteDown) return null;
+        try
+        {
+            using (HttpResponseMessage r = await http.GetAsync(uri))
+            {
+                if (!r.IsSuccessStatusCode) { Program.Log("сайт: " + (int)r.StatusCode); return null; }
+                string html = Encoding.UTF8.GetString(await r.Content.ReadAsByteArrayAsync());
+                return html.Contains(PageMarker) ? html : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Program.Log("сайт: " + (ex.InnerException ?? ex).Message);
+            return null;
+        }
+    }
+
+    static string OwnPage()
+    {
+        try
+        {
+            if (File.Exists(SavedPage))
+            {
+                string saved = File.ReadAllText(SavedPage, Encoding.UTF8);
+                if (saved.Contains(PageMarker)) return saved;
+            }
+        }
+        catch { }
+        using (Stream s = typeof(Program).Assembly.GetManifestResourceStream("page.html"))
+        {
+            if (s == null) return null;
+            using (StreamReader r = new StreamReader(s, Encoding.UTF8)) return r.ReadToEnd();
+        }
+    }
+
+    // Без метки в адресе сайт GitHub ещё минут десять после обновления отдаёт сохранённую копию страницы,
+    // а программа запускается редко — пусть берёт новую версию сразу.
+    static string Fresh(string url)
+    {
+        string[] parts = url.Split(new[] { '#' }, 2);
+        string u = parts[0] + (parts[0].Contains("?") ? "&" : "?") + "v=" + DateTime.UtcNow.Ticks.ToString("x");
+        return parts.Length > 1 ? u + "#" + parts[1] : u;
     }
 
     // Ссылка zvonilka: из браузера — открываем её на странице (приглашение или связка с браузером).
