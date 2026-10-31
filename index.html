@@ -421,6 +421,13 @@
     </div>
   </div>
 </div>
+<div id="ctlHelp" class="ring" hidden>
+  <div class="ring-card">
+    <h2 id="ctlHelpTitle"></h2>
+    <p id="ctlHelpText" class="sub"></p>
+    <button id="ctlHelpOk" class="btn btn-primary" type="button">Понятно</button>
+  </div>
+</div>
 <div id="ctlBar" class="ctl-bar" hidden><span id="ctlBarText"></span><button id="ctlBarStop" class="btn" type="button">Остановить</button></div>
 
 <div id="ring" class="ring" hidden>
@@ -1033,14 +1040,21 @@ function onCtlAsk() {
   $('ctlAskTitle').textContent = c.name + ' просит управлять вашим компьютером';
   $('ctlAsk').hidden = false;
 }
-function ctlAllow() {
+// Сайту из интернета Chrome даёт связаться с программой на этом же компьютере, только если человек
+// разрешил «доступ к локальной сети» (браузер спрашивает при первой попытке).
+async function localAccess() {
+  try { return (await navigator.permissions.query({ name: 'local-network-access' })).state; }
+  catch (e) { return 'prompt'; }   // браузер без такой защиты
+}
+async function ctlAllow() {
   $('ctlAsk').hidden = true;
   stopRemote(false);
-  toast('Подключаемся к «Помощнику Звонилки»… Если браузер спросит о доступе к устройствам, нажмите «Разрешить».', 6000);
+  toast('Подключаемся к «Помощнику Звонилки»… Если браузер спросит о доступе к устройствам в локальной сети, нажмите «Разрешить».', 8000);
   let ws;
   try { ws = new WebSocket(HELPER_URL); } catch (e) { return helperMissing(); }
   let opened = false;
-  const timer = setTimeout(() => { if (!opened) { try { ws.close(); } catch (e) {} helperMissing(); } }, 30000);
+  const failed = async () => { if (await localAccess() === 'denied') localBlocked(); else helperMissing(); };
+  const timer = setTimeout(() => { if (!opened) { try { ws.close(); } catch (e) {} failed(); } }, 30000);
   ws.onopen = () => {
     opened = true;
     clearTimeout(timer);
@@ -1050,12 +1064,23 @@ function ctlAllow() {
     $('ctlBar').hidden = false;
     ctlSend({ type: 'ctl-ok' });
   };
-  ws.onerror = () => { if (!opened) { clearTimeout(timer); helperMissing(); } };
+  ws.onerror = () => { if (!opened) { clearTimeout(timer); failed(); } };
   ws.onclose = () => { if (Remote.ws === ws) stopRemote(true); };
 }
 function helperMissing() {
-  toast('Не получилось: запустите программу «Помощник Звонилки» и снова нажмите «Разрешить».', 8000);
+  ctlHelp('Помощник не отвечает', 'Запустите программу «Помощник Звонилки» — должно появиться её окно. Потом собеседник снова нажмёт «Управлять».');
   ctlSend({ type: 'ctl-no', reason: 'helper' });
+}
+function localBlocked() {
+  ctlHelp('Браузер не пускает к помощнику',
+    'Нажмите на значок слева от адреса сайта → «Локальная сеть» (или «Устройства в локальной сети») → «Разрешить». ' +
+    'Потом собеседник снова нажмёт «Управлять».');
+  ctlSend({ type: 'ctl-no', reason: 'blocked' });
+}
+function ctlHelp(title, text) {
+  $('ctlHelpTitle').textContent = title;
+  $('ctlHelpText').textContent = text;
+  $('ctlHelp').hidden = false;
 }
 function onCtlEvent(e) {
   if (!Remote.on || Remote.ws?.readyState !== 1 || e.length > 8) return;
@@ -1090,6 +1115,7 @@ function onCtlNo(reason) {
     contact: 'Управлять можно только компьютером своего контакта.',
     screen: 'Попросите собеседника показать весь экран: кнопка с монитором → «Весь экран».',
     helper: 'У собеседника не запущен «Помощник Звонилки».',
+    blocked: 'У собеседника браузер не пускает к помощнику. Подскажите: значок слева от адреса сайта → «Локальная сеть» → «Разрешить».',
     denied: 'Собеседник не разрешил управление.',
   }[reason] || 'Управление не включилось.', 6000);
 }
@@ -3131,6 +3157,7 @@ $('ctlBtn').onclick = toggleControl;
 $('ctlAllow').onclick = ctlAllow;
 $('ctlDeny').onclick = () => { $('ctlAsk').hidden = true; ctlSend({ type: 'ctl-no', reason: 'denied' }); };
 $('ctlBarStop').onclick = () => stopRemote(true);
+$('ctlHelpOk').onclick = () => { $('ctlHelp').hidden = true; };
 setupControlInput();
 $('unmuteBtn').onclick = () => { $('remoteVideo').play().catch(() => {}); $('unmuteBtn').hidden = true; };
 $('fileWarn').hidden = location.protocol !== 'file:';
