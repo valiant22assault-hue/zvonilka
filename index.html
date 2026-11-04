@@ -481,6 +481,8 @@
 <script>
 'use strict';
 
+const PAGE_VERSION = 2026110401;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+
 const CONFIG = {
   iceServers: [
     // STUN только сообщает браузеру его внешний адрес. Яндекс и Sipnet — на случай, если Google недоступен.
@@ -3276,7 +3278,7 @@ function pullCallLog() {
 window.zvApp = {
   soundsChanged: renderSounds,
   callLogChanged: pullCallLog,
-  resumed() { renderSounds(); pullCallLog(); },
+  resumed() { renderSounds(); pullCallLog(); checkUpdate(true); },
   accept(callId) {
     if (ringing?.d.callId === callId) acceptRing();
     else pendingAccept = callId;
@@ -3542,6 +3544,39 @@ document.addEventListener('visibilitychange', () => {
   c.unread = 0;
   saveContacts();
   updateBadge();
+});
+
+// ---------- обновление страницы ----------
+// Приложение и программа работают неделями, а страницу загружают один раз, при запуске: без этого исправления с сайта
+// до них не дойдут. Номер новой версии лежит отдельным маленьким файлом. Вышла новая — перезагружаемся, когда никому
+// не мешаем: в фоне или при возвращении в приложение, если нет звонка и недописанного сообщения.
+let updateTo = 0, updateCheckedAt = 0;
+function pageBusy() {
+  return S.active || ringing || pendingAccept || pendingAdd || pendingLink || editingNames || !$('inviteBox').hidden
+    || $('convInput').value || $('joinInput').value || !['home', 'conv', 'ended'].includes(document.body.dataset.screen);
+}
+function applyUpdate() {
+  if (!updateTo || pageBusy()) return;
+  // Новая страница могла не загрузиться (сайт недоступен) — не перезагружаемся без конца, попробуем через несколько часов.
+  const tried = Store.get('updateTried', null);
+  if (tried?.v === updateTo && Date.now() - tried.at < 6 * 3600000) return;
+  Store.set('updateTried', { v: updateTo, at: Date.now() });
+  location.replace(location.pathname + '?v=' + Date.now().toString(36) + location.hash);
+}
+async function checkUpdate(returned = false) {
+  if (Date.now() - updateCheckedAt < 600000) return;
+  updateCheckedAt = Date.now();
+  try {
+    const v = parseInt(await (await fetch('version.txt?v=' + Date.now(), { cache: 'no-store' })).text(), 10);
+    if (v > PAGE_VERSION) updateTo = v;
+  } catch (e) { return; }
+  if (returned || document.visibilityState !== 'visible') applyUpdate();
+}
+setInterval(checkUpdate, 3600000);
+setTimeout(checkUpdate, 30000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkUpdate(true);
+  else applyUpdate();
 });
 
 (async function startContacts() {

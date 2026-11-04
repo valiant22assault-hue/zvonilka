@@ -30,8 +30,12 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -44,7 +48,8 @@ import org.json.JSONObject;
 
 /**
  * Окно приложения: та же звонилка, что на сайте, внутри WebView. Страница открывается по адресу сайта
- * (поэтому ссылки-приглашения ведут туда же), но, если сайт недоступен, берётся копия, встроенная в приложение.
+ * (поэтому ссылки-приглашения ведут туда же), но, если сайт недоступен, берётся последняя скачанная копия,
+ * а если её нет — встроенная в приложение.
  */
 public class MainActivity extends Activity {
     static final String HOST = "valiant22assault-hue.github.io", BASE = "/zvonilka/";
@@ -106,7 +111,7 @@ public class MainActivity extends Activity {
         setContentView(web);
 
         Intent i = getIntent();
-        fastStart = ACTION_ACCEPT.equals(i.getAction());   // отвечаем на звонок — не ждём сайт, берём встроенную копию
+        fastStart = ACTION_ACCEPT.equals(i.getAction());   // отвечаем на звонок — не ждём сайт, берём свою копию
         handleAction(i);
         String hash = hashFrom(i);
         web.loadUrl(HOME + (hash != null ? hash : ""));
@@ -302,7 +307,11 @@ public class MainActivity extends Activity {
             if (mime == null || name.contains("/")) return null;
             byte[] body = fastStart ? null : fetch(u);
             // Страница с сайта годится, только если уже умеет работать с приложением (старая — нет).
-            if (body != null && name.equals("index.html") && !new String(body, StandardCharsets.UTF_8).contains("window.ZvonilkaApp")) body = null;
+            if (body != null && name.equals("index.html")) {
+                if (new String(body, StandardCharsets.UTF_8).contains("window.ZvonilkaApp")) savePage(body);
+                else body = null;
+            }
+            if (body == null && name.equals("index.html")) body = savedPage();
             if (body == null) body = bundled(name);
             if (body == null) return null;
             Map<String, String> h = new HashMap<>();
@@ -339,6 +348,29 @@ public class MainActivity extends Activity {
             return null;
         } finally {
             if (c != null) c.disconnect();
+        }
+    }
+
+    private void savePage(byte[] body) {
+        File tmp = new File(getFilesDir(), "page.html.tmp");
+        try (OutputStream out = new FileOutputStream(tmp)) {
+            out.write(body);
+        } catch (IOException e) {
+            return;
+        }
+        tmp.renameTo(new File(getFilesDir(), "page.html"));
+    }
+
+    // Страница, скачанная до установки новой версии приложения, может быть старше встроенной в неё.
+    private byte[] savedPage() {
+        File f = new File(getFilesDir(), "page.html");
+        try {
+            if (f.lastModified() <= getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime) return null;
+            try (InputStream in = new FileInputStream(f)) {
+                return readAll(in);
+            }
+        } catch (IOException | PackageManager.NameNotFoundException e) {
+            return null;
         }
     }
 
