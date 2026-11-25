@@ -2,6 +2,7 @@ package io.github.zvonilka.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -116,7 +117,11 @@ public class MainActivity extends Activity {
         String hash = hashFrom(i);
         web.loadUrl(HOME + (hash != null ? hash : ""));
         ZvService.start(this);
-        askPermissions();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        checkSetup();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -171,6 +176,7 @@ public class MainActivity extends Activity {
         String a = i.getAction();
         if (ACTION_ACCEPT.equals(a)) {
             String callId = i.getStringExtra(EXTRA_CALL);
+            acceptAt = System.currentTimeMillis();
             showOverLock(true);
             IncomingCallActivity.close();
             ZvService s = ZvService.instance;
@@ -208,55 +214,140 @@ public class MainActivity extends Activity {
         return "https".equals(u.getScheme()) && HOST.equals(u.getHost()) && u.getPath() != null && u.getPath().startsWith(BASE);
     }
 
-    // ---------- разрешения при первом запуске ----------
+    // ---------- что нужно, чтобы звонки доходили ----------
+    // При каждом открытии проверяем разрешения и режим батареи. Чего-то не хватает — по одному пункту объясняем,
+    // зачем это нужно и что нажать, и открываем нужную настройку. «Позже» — не напоминаем полдня; во время звонка молчим.
+
+    private static final long SETUP_LATER = 12 * 3600_000L;
+    private AlertDialog setupDialog;
+    private boolean setupOpened;    // настройку открыли мы — когда вернутся, сразу проверим следующий пункт
+    private boolean batteryAsked;   // системный вопрос про батарею уже был — дальше ведём в настройки приложения
+    private long acceptAt;
 
     private boolean granted(String p) {
         return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void askPermissions() {
-        List<String> need = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) need.add(Manifest.permission.POST_NOTIFICATIONS);
-        if (!granted(Manifest.permission.RECORD_AUDIO)) need.add(Manifest.permission.RECORD_AUDIO);
-        if (!need.isEmpty() && !prefs.getBoolean("askedStart", false)) {
-            prefs.edit().putBoolean("askedStart", true).apply();
-            requestPermissions(need.toArray(new String[0]), REQ_START);
-        } else {
-            setupStep();
+    // Один пункт: что не так, зачем это нужно, что нажать — и кнопка, которая это открывает.
+    private static final class Step {
+        final String title, text, button;
+        final Runnable fix;
+        Step(String title, String text, String button, Runnable fix) {
+            this.title = title;
+            this.text = text;
+            this.button = button;
+            this.fix = fix;
         }
     }
 
-    // По очереди: работа в фоне без ограничений, затем звонок поверх экрана блокировки.
-    private void setupStep() {
-        PowerManager pm = getSystemService(PowerManager.class);
-        if (!pm.isIgnoringBatteryOptimizations(getPackageName()) && !prefs.getBoolean("askedBattery", false)) {
-            prefs.edit().putBoolean("askedBattery", true).apply();
-            new AlertDialog.Builder(this)
-                    .setTitle("Звонки, когда телефон спит")
-                    .setMessage("Чтобы звонки и сообщения доходили, даже когда телефон заблокирован, разрешите звонилке работать в фоне без ограничений.")
-                    .setPositiveButton("Разрешить", (d, w) -> {
-                        try {
-                            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
-                        } catch (Exception e) {}
-                    })
-                    .setNegativeButton("Не сейчас", null)
-                    .setOnDismissListener(d -> setupStep())
-                    .show();
+    private void checkSetup() {
+        if (setupDialog != null && setupDialog.isShowing()) return;
+        boolean going = setupOpened;
+        setupOpened = false;
+        if (callBusy()) return;
+        if (!going && System.currentTimeMillis() - prefs.getLong("setupLater", 0) < SETUP_LATER) return;
+        List<Step> steps = missingSteps();
+        if (steps.isEmpty()) {
+            if (going) Toast.makeText(this, "Готово: всё нужное для звонков разрешено", Toast.LENGTH_LONG).show();
             return;
         }
-        if (Build.VERSION.SDK_INT >= 34 && !getSystemService(NotificationManager.class).canUseFullScreenIntent()
-                && !prefs.getBoolean("askedFullScreen", false)) {
-            prefs.edit().putBoolean("askedFullScreen", true).apply();
-            new AlertDialog.Builder(this)
-                    .setTitle("Входящие звонки на весь экран")
-                    .setMessage("Разрешите показывать входящий звонок на весь экран — как обычный звонок телефона.")
-                    .setPositiveButton("Открыть настройки", (d, w) -> {
-                        try {
-                            startActivity(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getPackageName())));
-                        } catch (Exception e) {}
-                    })
-                    .setNegativeButton("Не сейчас", null)
-                    .show();
+        Step s = steps.get(0);
+        int more = steps.size() - 1;
+        setupDialog = new AlertDialog.Builder(this)
+                .setTitle(s.title)
+                .setMessage(s.text + (more > 0 ? "\n\nПосле этого — ещё " + more + (more == 1 ? " шаг." : " шага.") : ""))
+                .setPositiveButton(s.button, (d, w) -> s.fix.run())
+                .setNegativeButton("Позже", (d, w) -> setupLater())
+                .setOnCancelListener(d -> setupLater())
+                .show();
+    }
+
+    private void setupLater() {
+        prefs.edit().putLong("setupLater", System.currentTimeMillis()).apply();
+    }
+
+    // Отвечают на звонок или разговаривают — не до настроек.
+    private boolean callBusy() {
+        ZvService s = ZvService.instance;
+        return pendingPerm != null || ZvService.ringingCallId != null || (s != null && s.inCall())
+                || System.currentTimeMillis() - acceptAt < 60_000;
+    }
+
+    private List<Step> missingSteps() {
+        List<Step> steps = new ArrayList<>();
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        NotificationChannel calls = nm.getNotificationChannel("calls");
+        boolean notifPerm = Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS);
+        if (!notifPerm || !nm.areNotificationsEnabled() || (calls != null && calls.getImportance() == NotificationManager.IMPORTANCE_NONE)) {
+            String why = "Входящий звонок приходит уведомлением. Без уведомлений вы не узнаете о звонке, когда звонилка закрыта.";
+            if (!notifPerm && canAsk(Manifest.permission.POST_NOTIFICATIONS)) {
+                steps.add(new Step("Уведомления о звонках", why + "\n\nСейчас телефон спросит разрешение — нажмите «Разрешить».",
+                        "Продолжить", () -> ask(Manifest.permission.POST_NOTIFICATIONS)));
+            } else {
+                steps.add(new Step("Уведомления о звонках", why + "\n\nОткроются настройки уведомлений звонилки — включите их, в том числе «Входящие звонки».",
+                        "Открыть настройки", () -> open(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()))));
+            }
+        }
+        if (!granted(Manifest.permission.RECORD_AUDIO)) {
+            String why = "Без микрофона собеседник вас не услышит.";
+            if (canAsk(Manifest.permission.RECORD_AUDIO)) {
+                steps.add(new Step("Микрофон", why + "\n\nСейчас телефон спросит разрешение — нажмите «Разрешить» (или «При использовании приложения»).",
+                        "Продолжить", () -> ask(Manifest.permission.RECORD_AUDIO)));
+            } else {
+                steps.add(new Step("Микрофон", why + "\n\nОткроются настройки звонилки — выберите «Разрешения», затем «Микрофон» и разрешите его.",
+                        "Открыть настройки", () -> open(appDetails())));
+            }
+        }
+        PowerManager pm = getSystemService(PowerManager.class);
+        boolean restricted = Build.VERSION.SDK_INT >= 28 && getSystemService(ActivityManager.class).isBackgroundRestricted();
+        if (!pm.isIgnoringBatteryOptimizations(getPackageName()) || restricted) {
+            String why = "Телефон экономит батарею и ограничивает приложения, которые сейчас не открыты. Из-за этого при погашенном экране "
+                    + "звонки приходят с опозданием или не приходят совсем. В режиме «Без ограничений» звонилка всегда на связи.";
+            if (!restricted && !batteryAsked) {
+                steps.add(new Step("Работа в фоне", why + "\n\nСейчас телефон спросит, можно ли звонилке работать в фоне, — нажмите «Разрешить».",
+                        "Продолжить", () -> {
+                            batteryAsked = true;
+                            open(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+                        }));
+            } else {
+                steps.add(new Step("Работа в фоне", why + "\n\nОткроются настройки звонилки — найдите «Батарея» (или «Расход батареи») и выберите «Без ограничений».",
+                        "Открыть настройки", () -> open(appDetails())));
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
+            steps.add(new Step("Звонок на весь экран", "Так входящий звонок появляется на весь экран, даже на заблокированном телефоне, — как обычный звонок."
+                    + "\n\nОткроется настройка — включите переключатель.",
+                    "Открыть настройки", () -> open(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getPackageName())))));
+        }
+        return steps;
+    }
+
+    // Системный вопрос о разрешении можно задать, пока его не запретили насовсем; дальше — только через настройки.
+    private boolean canAsk(String perm) {
+        return !prefs.getBoolean("asked:" + perm, false) || shouldShowRequestPermissionRationale(perm);
+    }
+
+    private void ask(String perm) {
+        prefs.edit().putBoolean("asked:" + perm, true).apply();
+        setupOpened = true;
+        requestPermissions(new String[]{perm}, REQ_START);
+    }
+
+    private Intent appDetails() {
+        return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+    }
+
+    private void open(Intent i) {
+        setupOpened = true;
+        try {
+            startActivity(i);
+        } catch (Exception e) {
+            try {
+                startActivity(appDetails());   // у некоторых телефонов нет отдельного экрана — открываем настройки приложения
+            } catch (Exception e2) {
+                setupOpened = false;
+                Toast.makeText(this, "Не получилось открыть настройки. Откройте их сами: Настройки → Приложения → Звонилка.", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -270,8 +361,7 @@ public class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         if (code == REQ_START) {
-            ZvService.start(this);   // с разрешением на уведомления служба покажет своё
-            setupStep();
+            ZvService.start(this);   // с разрешением на уведомления служба покажет своё; следующий пункт — в onResume
         } else if (code == REQ_MEDIA && pendingPerm != null) {
             PermissionRequest req = pendingPerm;
             pendingPerm = null;

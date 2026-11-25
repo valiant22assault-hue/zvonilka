@@ -158,6 +158,10 @@ public class ZvService extends Service implements RelayCore.Events {
         MainActivity.runJs("window.zvApp && zvApp.decline(" + JSONObject.quote(callId) + ")");
     }
 
+    boolean inCall() {
+        return inCall;
+    }
+
     void setInCall(boolean on, String name) {
         main.post(() -> {
             if (on == inCall && (name == null || name.equals(callName))) return;

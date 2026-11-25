@@ -481,7 +481,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026110401;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112501;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 const CONFIG = {
   iceServers: [
@@ -2873,6 +2873,7 @@ function renderContactList() {
 const handledCalls = new Set();
 let ringing = null;
 let pendingAccept = null;   // приложение: «Ответить» нажали раньше, чем звонок дошёл до страницы
+let pickedUp = null;        // у собеседника взяли трубку этого звонка (callId) — «телефон звонит» уже не показываем
 
 function setCallContact(c, callId) {
   S.contact = c;
@@ -2928,7 +2929,16 @@ async function onCallSignal(c, d) {
     later('join', CONFIG.joinTimeout, () => {
       if (S.call === call && !S.connected) failCall(noRoute(call));
     });
-  } else if (d.t === 'ringing' && S.awaiting) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
+  } else if (d.t === 'taken' && S.awaiting) {
+    // Трубку взяли — гудки ни к чему. Ответ с адресами идёт следом; если он так и не дойдёт, не держим человека минуту.
+    const call = S.call;
+    pickedUp = d.callId;
+    Ringback.stop();
+    setStatus('Соединяемся…', { share: false });
+    later('ring', 30000, () => {
+      if (S.call === call && S.awaiting) failCall('Не удалось соединиться: ответ собеседника не дошёл. Позвоните ещё раз.');
+    });
+  } else if (d.t === 'ringing' && S.awaiting && pickedUp !== d.callId) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
   else if (d.t === 'decline') {
     logCall(c, d.callId, 'declined');
     endContactCall('Звонок отклонён.');
@@ -3001,8 +3011,8 @@ async function acceptRing() {
   if (!ringing) return;
   const { c, d } = ringing;
   stopRinging();
-  // Связанное устройство замолкает сразу, не дожидаясь, пока здесь включится микрофон.
-  if (Me.sync) relaySend(c, 'sig', { t: 'taken', callId: d.callId });
+  // Трубку взяли: у звонящего смолкают гудки, а связанное устройство замолкает — не дожидаясь, пока здесь включится микрофон.
+  relaySend(c, 'sig', { t: 'taken', callId: d.callId });
   relayClear(c, 'call');
   enterDirect('answerer');
   setCallContact(c, d.callId);
@@ -3022,9 +3032,20 @@ async function acceptRing() {
   }
   await iceGathered(pc);
   if (S.call !== call) return;
-  await relaySend(c, 'sig', { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp });
+  const answer = { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp };
+  await relaySend(c, 'sig', answer);
+  repeatAnswer(c, call, answer, 6);
   later('join', CONFIG.joinTimeout, () => {
     if (S.call === call && !S.connected) failCall(noRoute(call));
+  });
+}
+// Реле доставку не обещают: потеряйся ответ — звонящий так и слушал бы гудки до «Не отвечает».
+// Повторяем его каждые 3 секунды, пока не соединились; лишние копии звонящий пропускает.
+function repeatAnswer(c, call, answer, times) {
+  later('answerAgain', 3000, () => {
+    if (S.call !== call || S.connected || !times) return;
+    relaySend(c, 'sig', answer);
+    repeatAnswer(c, call, answer, times - 1);
   });
 }
 
