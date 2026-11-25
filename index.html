@@ -84,7 +84,8 @@
   #callInfo svg { width: 15px; height: 15px; color: #ffb4b6; }
   #remoteState { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; padding: 16px 16px 200px; pointer-events: none; }
   .pill { padding: 10px 18px; border-radius: 999px; background: var(--glass); color: rgba(255,255,255,.9); font-size: 15px; text-align: center; }
-  #waiting { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; padding: 16px 16px 200px; }
+  #waiting { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; padding: calc(64px + env(safe-area-inset-top)) 16px 200px; overflow-y: auto; }
+  #waiting > .panel { margin: auto; }
   .panel { width: 100%; max-width: 420px; padding: 24px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
   .status { margin: 0; font-size: 17px; font-weight: 600; }
   .panel .muted { margin: 14px 0 10px; color: var(--muted); font-size: 14px; }
@@ -93,6 +94,13 @@
   #directBtn { margin-top: 10px; }
   .hint { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
   #answerBlock .muted { margin-top: 18px; }
+  .diag-ask { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: rgba(58,131,247,.2); color: #d7e6ff; font-size: 16px; font-weight: 600; }
+  .diag-reason { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+  .diag { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.28); color: var(--muted); font-size: 12px; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+  .diag .in { padding-left: 12px; }
+  .diag b { color: var(--text); font-weight: 600; }
+  .diag .good { color: #7fdcaa; }
+  .diag .bad { color: #ff9a9d; }
   .spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   #unmuteBtn { position: absolute; top: 50%; left: 50%; z-index: 4; width: auto; transform: translate(-50%, -50%); }
@@ -334,6 +342,11 @@
     <div class="panel">
       <div id="spinner" class="spinner"></div>
       <p id="statusText" class="status">Подключаемся…</p>
+      <div id="diagBlock" hidden>
+        <p class="diag-ask">Просьба сделать снимок экрана и отправить разработчику.</p>
+        <p id="diagReason" class="diag-reason"></p>
+        <div id="diag" class="diag"></div>
+      </div>
       <div id="shareBlock" hidden>
         <p id="shareText" class="muted">Отправьте собеседнику эту ссылку:</p>
         <div class="linkbox">
@@ -481,7 +494,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112501;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112601;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 const CONFIG = {
   iceServers: [
@@ -490,14 +503,19 @@ const CONFIG = {
     // TURN — посредник для самого разговора: через него звонок идёт, только когда напрямую соединиться не выходит
     // (сеть провайдера, блокировки). Бесплатный ExpressTURN, 1000 ГБ в месяц; логин и пароль видны в коде страницы.
     { urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'], username: '000000002108864532', credential: 'LAE6c1HaWOZplIW6PJ2iq+/o/ds=' },
+    // Запасной посредник — Metered (бесплатно 500 МБ в месяц): другой хостинг и порты 80 и 443, в том числе
+    // зашифрованный, как обычный сайт. Стоит вторым: пока ExpressTURN отвечает, браузер выбирает его.
+    { urls: ['turn:global.relay.metered.ca:80', 'turn:global.relay.metered.ca:80?transport=tcp', 'turn:global.relay.metered.ca:443', 'turns:global.relay.metered.ca:443?transport=tcp'], username: 'f7c27498b0282ad3d860c0f3', credential: 'LPZ1TTn6zkwieVxW' },
   ],
   // Сигнальный сервер PeerJS. null — бесплатный публичный (0.peerjs.com).
   // Свой: { host: 'peer.example.com', port: 443, path: '/', secure: true }
   peerServer: null,
   // Префикс комнат на сигнальном сервере.
   idPrefix: 'zvonilka-',
-  // Сколько ждать ответа собеседника, мс.
-  joinTimeout: 20000,
+  // Сколько ждать соединения после обмена адресами, мс. Обычно хватает 1–5 секунд: если за 8 ни одна проверка
+  // пути не получила ответа — пути нет. Если путь уже нащупан, ждём ещё joinGrace (медленная сеть, посредник далеко).
+  joinTimeout: 8000,
+  joinGrace: 7000,
   // Реле для контактов и переписки — общедоступные MQTT-брокеры. Сообщения шифруются: ключ знают только двое.
   relays: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'],
   // Функция push-уведомлений (адреса пробуются по очереди) и её публичный ключ.
@@ -767,6 +785,23 @@ function ensureMedia() {
   if (!S.mediaReady) S.mediaReady = acquireMedia(S.mediaGen);
   return S.mediaReady;
 }
+// Почему не дали камеру или микрофон — и что с этим делать. В программе для Windows и в приложении
+// страница разрешение получает сама, так что «нет доступа» там значит запрет в настройках системы.
+function deviceTrouble(e, kind) {
+  const cam = kind === 'cam';
+  switch (e?.name) {
+    case 'NotFoundError': case 'OverconstrainedError':
+      return cam ? 'Камера не найдена: если она есть, проверьте, что подключена.' : 'Микрофон не найден: проверьте, что он подключён.';
+    case 'NotReadableError': case 'AbortError':
+      return (cam ? 'Камера не запускается: она не подключена или занята' : 'Микрофон не запускается: он не подключён или занят')
+        + ' другой программой (Zoom, Skype, браузер) — закройте её и попробуйте снова.';
+    case 'NotAllowedError': case 'SecurityError':
+      if (Desk) return 'Windows не даёт программам ' + (cam ? 'камеру' : 'микрофон') + ': Параметры → Конфиденциальность → ' + (cam ? 'Камера' : 'Микрофон') + ' → разрешите доступ классическим приложениям.';
+      if (App) return 'Разрешите звонилке ' + (cam ? 'камеру' : 'микрофон') + ': Настройки → Приложения → Звонилка → Разрешения.';
+      return 'Разрешите доступ к ' + (cam ? 'камере' : 'микрофону') + ' в адресной строке (значок слева от адреса) и обновите страницу.';
+  }
+  return 'Не получилось включить ' + (cam ? 'камеру' : 'микрофон') + (e?.name ? ' (' + e.name + ').' : '.');
+}
 async function acquireMedia(gen) {
   const md = navigator.mediaDevices;
   let mic = null, note = '';
@@ -776,7 +811,7 @@ async function acquireMedia(gen) {
       : 'Камера и микрофон работают только по HTTPS — выложите страницу на хостинг с https://.';
   } else {
     try { mic = (await md.getUserMedia({ audio: AUDIO })).getAudioTracks()[0]; }
-    catch (e) { note = 'Нет доступа к микрофону — собеседник вас не услышит. Разрешите доступ в адресной строке и обновите страницу.'; }
+    catch (e) { note = 'Нет микрофона — собеседник вас не услышит. ' + deviceTrouble(e, 'mic'); }
   }
   if (gen !== S.mediaGen) { mic?.stop(); return null; }
   const placeholder = blankVideoTrack();
@@ -883,9 +918,13 @@ async function toggleCam() {
   } else {
     S.camBusy = true;
     updateControls();
-    let track = null;
+    let track = null, err = null;
     try { track = (await navigator.mediaDevices.getUserMedia({ video: { ...VIDEO, facingMode: S.facing } })).getVideoTracks()[0]; }
-    catch (e) { toast('Не удалось включить камеру. Разрешите доступ к ней в адресной строке.', 5000); }
+    catch (e) { err = e; }
+    // Камера по умолчанию не запустилась — на компьютере первой в списке бывает неподключённая
+    // (драйвер от старой камеры, виртуальная). Пробуем остальные: на всё уходит меньше секунды.
+    if (!track && ['NotReadableError', 'AbortError', 'OverconstrainedError'].includes(err?.name)) track = await anyCamera();
+    if (!track) toast('Не удалось включить камеру. ' + deviceTrouble(err, 'cam'), 7000);
     S.camBusy = false;
     if (track && S.media !== m) { track.stop(); return; }
     if (track) {
@@ -895,6 +934,16 @@ async function toggleCam() {
   }
   videoChanged();
   if (m.cam) countCameras();
+}
+
+async function anyCamera() {
+  const { facingMode, ...base } = VIDEO;
+  let cams = [];
+  try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.deviceId); } catch (e) {}
+  for (const c of cams) {
+    try { return (await navigator.mediaDevices.getUserMedia({ video: { ...base, deviceId: { exact: c.deviceId } } })).getVideoTracks()[0]; } catch (e) {}
+  }
+  return null;
 }
 
 // Передняя ↔ основная камера. На телефоне — по facingMode, на компьютере — следующая камера из списка.
@@ -1433,9 +1482,7 @@ function callHost(hostId) {
       } else if (S.dc === dc) onData(d);
     });
     dc.on('close', () => { if (S.dc === dc) S.dc = null; });
-    later('join', CONFIG.joinTimeout, () => {
-      if (S.call === call && !S.connected) failCall(noRoute(call));
-    });
+    watchJoin(call);
   });
   peer.on('call', call => call.close());
   peer.on('error', err => {
@@ -1457,9 +1504,7 @@ function answerCall(call) {
   call.answer(S.media.out);
   watchCall(call);
   setStatus('Соединяемся с собеседником…', { share: false });
-  later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall(noRoute(call));
-  });
+  watchJoin(call);
 }
 
 function watchCall(call) {
@@ -1469,12 +1514,14 @@ function watchCall(call) {
     if (S.call !== call) return;
     const v = $('remoteVideo');
     if (v.srcObject !== remote) v.srcObject = remote;
-    v.play().catch(() => { $('unmuteBtn').hidden = false; });
+    // Звонок не соединился и его сбросили — воспроизведение прервано (AbortError), звук включать некому.
+    v.play().catch(e => { if (S.call === call && e.name !== 'AbortError') $('unmuteBtn').hidden = false; });
   });
   call.on('close', () => { if (S.call === call) onRemoteGone(); });
   call.on('error', () => { if (S.call === call) onRemoteGone(); });
   const pc = call.peerConnection;
   if (!pc) return;
+  trackIce(pc);   // звонок по ссылке через сервер: соединение создаёт PeerJS, а адреса оно собирает чуть позже
   // Без сервера ICE-проверки у отвечающего проходят ещё до того, как собеседник открыл ответ,
   // поэтому там ждём полного соединения (с шифрованием), а не только ICE.
   if (call.peer === 'direct') pc.addEventListener('connectionstatechange', () => onIce(call, pc.connectionState));
@@ -1494,7 +1541,7 @@ function onIce(call, st) {
   } else if (st === 'failed') {
     // Без сервера отвечающий ждёт, пока собеседник откроет ответную ссылку: до этого проверки связи неизбежно не проходят.
     if (S.mode === 'direct' && S.role === 'answerer' && !S.connected) return;
-    failCall(S.connected ? 'Связь оборвалась.' : noRoute(call));
+    failCall(S.connected ? 'Связь оборвалась.' : noRoute(call), S.connected ? null : call);
   }
 }
 
@@ -1587,19 +1634,190 @@ function onRemoteGone() {
   if (S.role === 'guest') retry(1000);
 }
 
-function failCall(msg) {
+// Адреса обменяны — ждём соединения. Если за joinTimeout ни одна проверка пути не получила ответа, пути нет —
+// сразу сообщаем. Если путь уже нащупан (через посредников из далёкой сети проверки идут медленнее), ждём ещё joinGrace.
+function watchJoin(call) {
+  later('join', CONFIG.joinTimeout, async () => {
+    if (S.call !== call || S.connected) return;
+    const st = call.peerConnection ? await pathStats(call.peerConnection) : null;
+    if (S.call !== call || S.connected) return;
+    if (st?.answered || isLive(call)) later('join', CONFIG.joinGrace, () => { if (S.call === call && !S.connected) failCall(noRoute(call), call); });
+    else failCall(noRoute(call), call);
+  });
+}
+
+// call — несостоявшийся звонок: тогда под сообщением показываем сводку для разработчика.
+async function failCall(msg, call = null) {
+  // Сводку собираем, пока соединение не закрыто: потом у него уже не узнать, что пробовали.
+  const rows = call?.peerConnection && !S.connected ? await diagRows(call) : null;
+  if (call && (S.call !== call || S.connected)) return;   // пока собирали, звонок закрыли, начали новый или он соединился
   if (S.contact && !S.connected) logCall(S.contact, S.callId, 'failed');
   dropCall();
-  setStatus(msg, { retry: true });
+  if (!rows) return setStatus(msg, { retry: true });
+  // Сверху коротко и сразу просьба о снимке — до сводки внизу экрана многие не дочитывают.
+  setStatus('Не удалось соединиться', { retry: true });
+  const reason = msg.replace(/^Не удалось соединиться:\s*/, '');
+  showDiag(rows, reason === msg ? '' : reason[0].toUpperCase() + reason.slice(1));
 }
 // Чья сеть не пропустила звонок: у кого в визитке нет ни внешнего адреса, ни адреса на сервере-посреднике,
 // до того снаружи не достучаться.
 function noRoute(call) {
   const pc = call?.peerConnection;
+  // Путь нашёлся (на адреса друг друга ответили), но звонок так и не начался: не дошёл ответ или не прошло шифрование.
+  if (isLive(call)) return 'Не удалось соединиться: связь с собеседником есть, но звонок не начался. Позвоните ещё раз.';
   const reachable = d => / typ (srflx|relay) /.test(d.sdp);
   if (pc?.localDescription && !reachable(pc.localDescription)) return 'Не удалось соединиться: ваша сеть не пропускает звонки. Попробуйте другой Wi-Fi или мобильный интернет.';
   if (pc?.remoteDescription && !reachable(pc.remoteDescription)) return 'Не удалось соединиться: сеть собеседника не пропускает звонки. Пусть попробует другой Wi-Fi или мобильный интернет.';
   return 'Не удалось соединиться: сеть не пропустила звонок. Попробуйте позвонить ещё раз через минуту.';
+}
+
+// ---------- сводка для разработчика ----------
+// Пока звонок соединяется, запоминаем, какие серверы откликнулись и с какой ошибкой. Не соединилось —
+// под сообщением короткая сводка: её снимают на экран и присылают разработчику. Свою сводку каждая
+// сторона кладёт и в предложение звонка или ответ — так на одном снимке видно обе стороны.
+
+const iceLogs = new WeakMap();
+function trackIce(pc) {
+  if (!pc || iceLogs.has(pc)) return;
+  const log = { cands: [], errs: [], t0: Date.now() };
+  iceLogs.set(pc, log);
+  pc.addEventListener('icecandidate', e => {
+    const c = e.candidate;
+    if (c?.candidate) log.cands.push({ type: c.type || (c.candidate.match(/ typ (\w+)/) || [])[1], url: c.url || e.url || '' });
+  });
+  pc.addEventListener('icecandidateerror', e => {
+    // Ошибки по IPv6 не считаем: его нет у большинства сетей, а по IPv4 тот же сервер при этом работает.
+    if (!String(e.address || '').includes(':')) log.errs.push({ url: e.url || '', code: e.errorCode, text: e.errorText || '' });
+  });
+}
+// «turn:host:port?transport=tcp» → ключ, одинаковый у адреса из настроек и у адреса из события браузера.
+function iceKey(url) {
+  const m = String(url).match(/^(stun|turn)(s?):([^:?]+)(?::(\d+))?(?:\?transport=(\w+))?/i);
+  if (!m) return '';
+  const tls = !!m[2];
+  return [m[1].toLowerCase(), m[3].toLowerCase(), m[4] || (tls ? '5349' : '3478'), tls ? 'tls' : (m[5] || 'udp').toLowerCase()].join(':');
+}
+// free.expressturn.com → expressturn; адрес-число оставляем как есть.
+const hostName = host => { const p = host.split('.'); return /^[\d.]+$|:/.test(host) || p.length < 2 ? host : p[p.length - 2]; };
+function iceWhy(e) {
+  if (!e) return 'нет ответа';
+  const t = e.text.toLowerCase();
+  if (e.code === 401) return 'логин не подошёл';
+  if (e.code === 400 || e.code === 403) return 'отказ сервера';
+  if (e.code === 486) return 'лимит исчерпан';
+  if (e.code === 508) return 'сервер перегружен';
+  if (t.includes('lookup')) return 'адрес не найден';
+  if (t.includes('establish') || t.includes('connect')) return 'не подключается';
+  if (t.includes('time')) return 'нет ответа';
+  return (e.code + ' ' + e.text).trim().slice(0, 40);
+}
+function netName() {
+  return { wifi: 'Wi-Fi', cellular: 'моб. интернет', ethernet: 'кабель' }[navigator.connection?.type] || '';
+}
+// Что получилось у нас: внешний адрес (его сообщают STUN-серверы) и место на каждом посреднике (TURN).
+// s: [название, 1 — есть / 0 — нет / 2 — есть, но чей, браузер не сказал / 3 — не понадобился / 4 — ещё ждали, причина].
+function iceBrief(pc) {
+  const log = iceLogs.get(pc);
+  if (!log) return null;
+  // Нашёлся путь — браузер перестаёт опрашивать серверы; кто не успел ответить, тот не виноват.
+  // А сводка, что уходит собеседнику вместе с визиткой, пишется в первые секунды — медленный сервер там ещё в пути.
+  const done = pc.iceGatheringState === 'complete', early = Date.now() - log.t0 < 10000;
+  const status = (ok, err) => ok ? [ok, ''] : err ? [0, iceWhy(err)] : done ? [3, 'не понадобился'] : early ? [4, 'ещё ждали'] : [0, 'нет ответа'];
+  const s = [['внешний адрес', ...status(log.cands.some(c => c.type === 'srflx') ? 1 : 0, log.errs.find(e => /^stun/i.test(e.url)))]];
+  const anon = log.cands.some(c => c.type === 'relay' && !c.url);
+  for (const u of CONFIG.iceServers.flatMap(x => [].concat(x.urls))) {
+    if (!/^turn/i.test(u)) continue;
+    const key = iceKey(u), [, host, port, tr] = key.split(':');
+    const ok = log.cands.some(c => c.type === 'relay' && iceKey(c.url) === key) ? 1 : anon ? 2 : 0;
+    s.push([hostName(host) + ' ' + tr.toUpperCase() + (port === '3478' ? '' : ':' + port), ...status(ok, log.errs.find(e => iceKey(e.url) === key))]);
+  }
+  return { v: PAGE_VERSION, p: App ? 'телефон' : Desk ? 'программа' : 'браузер', n: netName(), s };
+}
+
+const markOf = ok => ok === 1 ? ['✓', 'good'] : ok === 2 ? ['?', ''] : ok === 3 ? ['–', ''] : ok === 4 ? ['…', ''] : ['✗', 'bad'];
+// Строки одной стороны: заголовок с внешним адресом, затем по строке на каждого посредника.
+function sideRows(title, brief) {
+  const clip = x => String(x ?? '').slice(0, 40);
+  const [addr, ...turns] = brief.s;
+  const rows = [[[title, 'b'], ': ' + clip(addr?.[0]) + ' ', markOf(addr?.[1]), addr?.[2] ? ' ' + clip(addr[2]) : '']];
+  const groups = new Map();
+  for (const [label, ok, why] of turns) {
+    const [name, kind = ''] = clip(label).split(' ');
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push([kind, ok, clip(why)]);
+  }
+  for (const [name, items] of groups) {
+    const row = ['in', name + ': '];
+    items.forEach(([kind, ok, why], i) => row.push((i ? ' · ' : '') + kind + ' ', markOf(ok), why ? ' ' + why : ''));
+    rows.push(row);
+  }
+  return rows;
+}
+// По визитке (SDP) — если собеседник сводку не прислал (старая версия или звонок по ссылке).
+function sdpRows(title, sdp) {
+  const n = t => (sdp.match(new RegExp(' typ ' + t + ' ', 'g')) || []).length;
+  return [[[title, 'b'], ': внешний адрес ', markOf(n('srflx') ? 1 : 0), ' · посредник ', markOf(n('relay') ? 1 : 0), n('relay') > 1 ? ' ×' + n('relay') : '']];
+}
+async function pathStats(pc) {
+  try {
+    const st = await Promise.race([pc.getStats(), new Promise((_, no) => setTimeout(no, 1500))]);
+    const r = { pairs: 0, answered: 0, dtls: '' };
+    st.forEach(x => {
+      if (x.type === 'candidate-pair') { r.pairs++; if (x.responsesReceived > 0) r.answered++; }
+      else if (x.type === 'transport' && x.dtlsState) r.dtls = x.dtlsState;
+    });
+    return r;
+  } catch (e) { return null; }
+}
+const ICE_RU = { new: 'проверять было нечего', checking: 'идёт проверка', connected: 'есть', completed: 'есть', failed: 'не нашёлся', disconnected: 'прервался', closed: 'закрыт' };
+const DTLS_RU = { connecting: 'устанавливается', connected: 'есть', failed: 'не установилось', closed: 'закрыто' };
+
+async function diagRows(call) {
+  const pc = call.peerConnection;
+  const rows = [];
+  const when = new Date().toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  rows.push([['Звонилка ' + PAGE_VERSION, 'b'], ' · ' + when]);
+  const mine = iceBrief(pc);
+  if (mine) rows.push(...sideRows('Мы (' + [mine.p, mine.n].filter(Boolean).join(', ') + ')', mine));
+  else if (pc.localDescription) rows.push(...sdpRows('Мы', pc.localDescription.sdp));
+  const rb = call.remoteIce;
+  const who = S.contact?.name;
+  if (rb && Array.isArray(rb.s) && rb.s.length) {
+    const about = [who, rb.p, rb.n, rb.v !== PAGE_VERSION ? 'версия ' + rb.v : ''].filter(Boolean).map(x => String(x).slice(0, 30));
+    rows.push(...sideRows('Собеседник' + (about.length ? ' (' + about.join(', ') + ')' : ''), rb));
+  } else if (pc.remoteDescription) rows.push(...sdpRows('Собеседник' + (who ? ' (' + who + ')' : ''), pc.remoteDescription.sdp));
+  else rows.push([['Собеседник', 'b'], ': ', ['ответ не пришёл', 'bad']]);
+  const st = await pathStats(pc);
+  if (st) {
+    const ice = pc.iceConnectionState;
+    const row = [['Путь', 'b'], `: проверено пар ${st.pairs}, ответили ${st.answered} · итог: `, [ICE_RU[ice] || ice, ice === 'connected' || ice === 'completed' ? 'good' : 'bad']];
+    if (DTLS_RU[st.dtls]) row.push(' · шифрование: ', [DTLS_RU[st.dtls], st.dtls === 'connected' ? 'good' : 'bad']);
+    rows.push(row);
+  }
+  if (Relay.links.length) {
+    const row = [['Реле сообщений', 'b'], ': '];
+    Relay.links.forEach((l, i) => row.push((i ? ' · ' : '') + hostName(new URL(l.url).hostname) + ' ', markOf(l.ready ? 1 : 0)));
+    rows.push(row);
+  }
+  return rows;
+}
+// Строка — массив кусков: текст или [текст, класс]; 'in' в начале — строка с отступом.
+function showDiag(rows, reason) {
+  $('diagReason').textContent = reason;
+  $('diagReason').hidden = !reason;
+  $('diag').replaceChildren(...rows.map(parts => {
+    const row = document.createElement('div');
+    if (parts[0] === 'in') { row.className = 'in'; parts = parts.slice(1); }
+    for (const p of parts) {
+      if (!Array.isArray(p)) { row.append(p); continue; }
+      const el = document.createElement(p[1] === 'b' ? 'b' : 'span');
+      if (p[1] && p[1] !== 'b') el.className = p[1];
+      el.textContent = p[0];
+      row.append(el);
+    }
+    return row;
+  }));
+  $('diagBlock').hidden = false;
 }
 
 function onPeerError(err) {
@@ -1619,6 +1837,7 @@ function setStatus(text, { share = true, link = null, answer = false, retry = fa
   const direct = S.mode === 'direct';
   $('waiting').hidden = false;
   $('statusText').textContent = text;
+  $('diagBlock').hidden = true;
   const shown = link || (share && !direct ? { text: 'Отправьте собеседнику эту ссылку:', url: roomLink(S.room) } : null);
   $('shareBlock').hidden = !shown;
   if (shown) {
@@ -1674,6 +1893,7 @@ function slimCodecs(pc) {
 }
 function newDirectPc() {
   const pc = new RTCPeerConnection({ iceServers: CONFIG.iceServers });
+  trackIce(pc);
   S.media.out.getTracks().forEach(t => pc.addTrack(t, S.media.out));
   slimCodecs(pc);
   return pc;
@@ -1813,9 +2033,7 @@ async function applyAnswer(data) {
   S.awaiting = false;
   $('answerInput').value = '';
   setStatus('Соединяемся с собеседником…', { share: false });
-  later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall(noRoute(call));
-  });
+  watchJoin(call);
 }
 
 function submitAnswer(text) {
@@ -2901,7 +3119,7 @@ async function callContact(c) {
   S.awaiting = true;
   Ringback.start();
   // retained: если собеседник откроет звонилку в течение минуты, звонок его дождётся
-  await relaySend(c, 'call', { t: 'offer', callId: S.callId, sdp: pc.localDescription.sdp, ts: Date.now() }, true);
+  await relaySend(c, 'call', { t: 'offer', callId: S.callId, sdp: pc.localDescription.sdp, ts: Date.now(), ice: iceBrief(pc) }, true);
   if (!isOnline(c)) {
     Push.notify(c, 'call');
     setStatus(c.name + ' сейчас не в сети. ' + (c.push ? 'Отправили уведомление — ждём ответа…' : 'Звонок дождётся, если собеседник откроет звонилку в течение минуты.'), { share: false });
@@ -2921,14 +3139,13 @@ async function onCallSignal(c, d) {
   if (d.t === 'answer' && S.awaiting) {
     const call = S.call;
     try { await call.peerConnection.setRemoteDescription({ type: 'answer', sdp: d.sdp }); } catch (e) { return; }
+    call.remoteIce = d.ice;   // сводка собеседника — для отчёта, если не соединимся
     S.awaiting = false;
     Ringback.stop();
     cancel('ring');
     relayClear(c, 'call');
     setStatus('Соединяемся…', { share: false });
-    later('join', CONFIG.joinTimeout, () => {
-      if (S.call === call && !S.connected) failCall(noRoute(call));
-    });
+    watchJoin(call);
   } else if (d.t === 'taken' && S.awaiting) {
     // Трубку взяли — гудки ни к чему. Ответ с адресами идёт следом; если он так и не дойдёт, не держим человека минуту.
     const call = S.call;
@@ -2936,7 +3153,7 @@ async function onCallSignal(c, d) {
     Ringback.stop();
     setStatus('Соединяемся…', { share: false });
     later('ring', 30000, () => {
-      if (S.call === call && S.awaiting) failCall('Не удалось соединиться: ответ собеседника не дошёл. Позвоните ещё раз.');
+      if (S.call === call && S.awaiting) failCall('Не удалось соединиться: ответ собеседника не дошёл. Позвоните ещё раз.', call);
     });
   } else if (d.t === 'ringing' && S.awaiting && pickedUp !== d.callId) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
   else if (d.t === 'decline') {
@@ -3023,6 +3240,7 @@ async function acceptRing() {
   updateControls();
   const pc = newDirectPc();
   const call = directCall(pc);
+  call.remoteIce = d.ice;
   watchCall(call);
   try {
     await pc.setRemoteDescription({ type: 'offer', sdp: d.sdp });
@@ -3032,12 +3250,10 @@ async function acceptRing() {
   }
   await iceGathered(pc);
   if (S.call !== call) return;
-  const answer = { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp };
+  const answer = { t: 'answer', callId: d.callId, sdp: pc.localDescription.sdp, ice: iceBrief(pc) };
   await relaySend(c, 'sig', answer);
   repeatAnswer(c, call, answer, 6);
-  later('join', CONFIG.joinTimeout, () => {
-    if (S.call === call && !S.connected) failCall(noRoute(call));
-  });
+  watchJoin(call);
 }
 // Реле доставку не обещают: потеряйся ответ — звонящий так и слушал бы гудки до «Не отвечает».
 // Повторяем его каждые 3 секунды, пока не соединились; лишние копии звонящий пропускает.
@@ -3236,7 +3452,7 @@ function openCall() {
   if (!S.active) return;
   show('call');
   const v = $('remoteVideo');
-  if (v.srcObject && v.paused) v.play().catch(() => { $('unmuteBtn').hidden = false; });
+  if (v.srcObject && v.paused) v.play().catch(e => { if (S.call && e.name !== 'AbortError') $('unmuteBtn').hidden = false; });
 }
 function updateCallBar() {
   tellApp();
