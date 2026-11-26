@@ -494,7 +494,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112602;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112604;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 const CONFIG = {
   iceServers: [
@@ -1606,7 +1606,7 @@ function dropCall() {
   Ringback.stop();
   stopRemote(false);
   endControl(false);
-  cancel('join', 'drop', 'stateFallback', 'audioRoute');
+  cancel('join', 'joinGuard', 'moreAgain', 'drop', 'stateFallback', 'audioRoute');
   clearInterval(S.tickTimer);
   const call = S.call, dc = S.dc;
   S.call = null;
@@ -1641,23 +1641,41 @@ function watchJoin(call) {
     if (S.call !== call || S.connected) return;
     const st = call.peerConnection ? await pathStats(call.peerConnection) : null;
     if (S.call !== call || S.connected) return;
-    if (st?.answered || isLive(call)) later('join', CONFIG.joinGrace, () => { if (S.call === call && !S.connected) failCall(noRoute(call), call); });
+    // Ждём ещё и тогда, когда адреса досылались уже после визиток: их проверки начались позже.
+    if (st?.answered || isLive(call) || call.lateAt) later('join', CONFIG.joinGrace, () => { if (S.call === call && !S.connected) failCall(noRoute(call), call); });
     else failCall(noRoute(call), call);
   });
 }
+// Последняя страховка: что бы ни застряло по дороге (микрофон так и не включился, где-то в коде сбой),
+// «Соединяемся…» не висит дольше 30 секунд — человек видит сообщение и может позвонить снова.
+function guardJoin(callId) {
+  later('joinGuard', 30000, () => {
+    if (S.callId !== callId || !S.active || S.connected) return;
+    // Соединения ещё нет — значит, ждали микрофон: до него звонилка ничего другого не ждёт.
+    failCall(S.call ? 'Не удалось соединиться: звонок так и не начался. Позвоните ещё раз.'
+      : 'Не удалось соединиться: микрофон так и не включился. Проверьте, что звонилке разрешён микрофон, и позвоните ещё раз.', S.call);
+  });
+}
+// Сбой в коде страницы во время звонка попадает в сводку: по снимку видно, где споткнулись.
+let lastError = '';
+function noteError(e) { lastError = String(e?.message || e || '').slice(0, 90); }
+addEventListener('error', e => noteError(e.error || e.message));
+addEventListener('unhandledrejection', e => noteError(e.reason));
 
 // call — несостоявшийся звонок: тогда под сообщением показываем сводку для разработчика.
 async function failCall(msg, call = null) {
   // Сводку собираем, пока соединение не закрыто: потом у него уже не узнать, что пробовали.
-  const rows = call?.peerConnection && !S.connected ? await diagRows(call) : null;
+  let rows = null;
+  try { if (call?.peerConnection && !S.connected) rows = await diagRows(call); } catch (e) { noteError(e); }
   if (call && (S.call !== call || S.connected)) return;   // пока собирали, звонок закрыли, начали новый или он соединился
   if (S.contact && !S.connected) logCall(S.contact, S.callId, 'failed');
   dropCall();
-  if (!rows) return setStatus(msg, { retry: true });
+  if (!rows) return setStatus(msg + (lastError ? ' (сбой: ' + lastError + ')' : ''), { retry: true });
   // Сверху коротко и сразу просьба о снимке — до сводки внизу экрана многие не дочитывают.
   setStatus('Не удалось соединиться', { retry: true });
   const reason = msg.replace(/^Не удалось соединиться:\s*/, '');
-  showDiag(rows, reason === msg ? '' : reason[0].toUpperCase() + reason.slice(1));
+  try { showDiag(rows, reason === msg ? '' : reason[0].toUpperCase() + reason.slice(1)); }
+  catch (e) { setStatus(msg + ' (сбой сводки: ' + String(e?.message || e).slice(0, 90) + ')', { retry: true }); }
 }
 // Чья сеть не пропустила звонок: у кого в визитке нет ни внешнего адреса, ни адреса на сервере-посреднике,
 // до того снаружи не достучаться.
@@ -1818,6 +1836,7 @@ async function diagRows(call) {
     Relay.links.forEach((l, i) => row.push((i ? ' · ' : '') + hostName(new URL(l.url).hostname) + ' ', markOf(l.ready ? 1 : 0)));
     rows.push(row);
   }
+  if (lastError) rows.push([['Сбой', 'b'], ': ', [lastError, 'bad']]);
   return rows;
 }
 // Строка — массив кусков: текст или [текст, класс]; 'in' в начале — строка с отступом.
@@ -2250,14 +2269,34 @@ class MqttLink {
     this.ws = ws;
     this.buf = EMPTY;
     ws.onopen = () => ws.send(this.connectPacket());
-    ws.onmessage = e => this.feed(new Uint8Array(e.data));
+    ws.onmessage = e => { this.lastRx = Date.now(); this.feed(new Uint8Array(e.data)); };
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.ready = false;
       clearInterval(this.ping);
+      clearTimeout(this.pongTimer);
       Relay.changed();
       this.retry();
     };
+  }
+  // Брокер отвечает на каждый пинг. Не ответил за 8 секунд — соединение «полуживое»: от нас уходит, а к нам
+  // ничего не приходит (так бывает в российских сетях: связь с зарубежным сервером вдруг подвисает, но не рвётся).
+  // Тогда звонки и сообщения до нас не доходят, хотя наши уходят. Подключаемся заново: на новом соединении
+  // всё снова идёт, а предложение звонка брокер держит отложенным — телефон зазвонит.
+  keepalive() {
+    const sent = Date.now();
+    this.raw(new Uint8Array([0xc0, 0]));
+    clearTimeout(this.pongTimer);
+    this.pongTimer = setTimeout(() => { if (this.ready && !(this.lastRx >= sent)) this.restart(); }, 8000);
+  }
+  restart() {
+    const ws = this.ws;
+    this.ready = false;
+    clearInterval(this.ping);
+    clearTimeout(this.pongTimer);
+    Relay.changed();
+    try { ws.onclose = null; ws.close(); } catch (e) {}
+    this.connect();
   }
   retry() {
     clearTimeout(this.retryTimer);
@@ -2295,7 +2334,7 @@ class MqttLink {
       Relay.subs.forEach(t => this.sendSubscribe(t));
       this.queue.splice(0).forEach(p => this.ws.send(p));
       clearInterval(this.ping);
-      this.ping = setInterval(() => this.raw(new Uint8Array([0xc0, 0])), 25000);
+      this.ping = setInterval(() => this.keepalive(), 15000);
       Relay.connected(this);
     } else if (type >> 4 === 3) {      // PUBLISH
       const tl = (body[0] << 8) | body[1];
@@ -3115,7 +3154,38 @@ let pickedUp = null;        // у собеседника взяли трубку
 function setCallContact(c, callId) {
   S.contact = c;
   S.callId = callId;
+  lastError = '';
   linkChat(c);
+}
+// Визитка уходит, как только в ней есть внешний адрес и первый посредник, — обычно по UDP. Посредники по TCP
+// и TLS отвечают позже, а в сети, где UDP режут, звонок пройдёт только через них. Поэтому найденное позже
+// досылаем: отвечающий — в повторах ответа, звонящий — сообщением «more». Принимающий добавляет новые адреса.
+const candCount = sdp => (String(sdp).match(/^a=candidate:/gm) || []).length;
+function sdpCands(sdp) {
+  return String(sdp).split(/\r?\n(?=m=)/).slice(1).flatMap((sec, i) => {
+    const mid = (sec.match(/^a=mid:(\S+)/m) || [])[1];
+    return (sec.match(/^a=candidate:.+$/gm) || []).map(l => ({ candidate: l.slice(2).trim(), sdpMid: mid ?? null, sdpMLineIndex: i }));
+  });
+}
+async function addLateCands(call, d) {
+  const pc = call?.peerConnection;
+  if (!pc?.remoteDescription || S.call !== call || S.connected) return;
+  if (d.ice) call.remoteIce = d.ice;   // в сводке — уже не первые секунды, а чем кончилось у собеседника
+  const known = call.knownCands || (call.knownCands = new Set(sdpCands(pc.remoteDescription.sdp).map(x => x.candidate)));
+  for (const c of sdpCands(d.sdp || '')) {
+    if (known.has(c.candidate)) continue;
+    known.add(c.candidate);
+    try { await pc.addIceCandidate(c); call.lateAt = Date.now(); } catch (e) {}
+  }
+}
+function sendMore(c, call, times) {
+  const pc = call.peerConnection;
+  if (S.call !== call || S.connected || !times || !pc?.localDescription) return;
+  if (candCount(pc.localDescription.sdp) > call.sentCands) {
+    relaySend(c, 'sig', { t: 'more', callId: S.callId, sdp: pc.localDescription.sdp, ice: iceBrief(pc) });
+    call.lateAt = call.lateAt || Date.now();
+  }
+  later('moreAgain', 3000, () => sendMore(c, call, times - 1));
 }
 async function callContact(c) {
   if (S.active) return S.chatWith === c ? openCall() : toast('Сначала завершите текущий звонок');
@@ -3137,6 +3207,7 @@ async function callContact(c) {
   if (S.call !== call) return;
   S.awaiting = true;
   Ringback.start();
+  call.sentCands = candCount(pc.localDescription.sdp);
   // retained: если собеседник откроет звонилку в течение минуты, звонок его дождётся
   await relaySend(c, 'call', { t: 'offer', callId: S.callId, sdp: pc.localDescription.sdp, ts: Date.now(), ice: iceBrief(pc) }, true);
   if (!isOnline(c)) {
@@ -3164,7 +3235,11 @@ async function onCallSignal(c, d) {
     cancel('ring');
     relayClear(c, 'call');
     setStatus('Соединяемся…', { share: false });
+    guardJoin(S.callId);
     watchJoin(call);
+    sendMore(c, call, 5);
+  } else if ((d.t === 'answer' || d.t === 'more') && !S.awaiting) {
+    addLateCands(S.call, d);   // повтор ответа или досланные адреса — берём то, чего ещё не было
   } else if (d.t === 'taken' && S.awaiting) {
     // Трубку взяли — гудки ни к чему. Ответ с адресами идёт следом; если он так и не дойдёт, не держим человека минуту.
     const call = S.call;
@@ -3253,6 +3328,7 @@ async function acceptRing() {
   enterDirect('answerer');
   setCallContact(c, d.callId);
   setStatus('Соединяемся…', { share: false });
+  guardJoin(d.callId);
   const m = await ensureMedia();
   if (!m || S.contact !== c) return;
   refreshPreviews();
@@ -3275,10 +3351,13 @@ async function acceptRing() {
   watchJoin(call);
 }
 // Реле доставку не обещают: потеряйся ответ — звонящий так и слушал бы гудки до «Не отвечает».
-// Повторяем его каждые 3 секунды, пока не соединились; лишние копии звонящий пропускает.
+// Повторяем его каждые 3 секунды, пока не соединились. В повторе — все адреса, найденные к этому времени,
+// и свежая сводка: звонящий добавит новые адреса, остальное пропустит.
 function repeatAnswer(c, call, answer, times) {
   later('answerAgain', 3000, () => {
     if (S.call !== call || S.connected || !times) return;
+    const pc = call.peerConnection;
+    if (pc?.localDescription) Object.assign(answer, { sdp: pc.localDescription.sdp, ice: iceBrief(pc) });
     relaySend(c, 'sig', answer);
     repeatAnswer(c, call, answer, times - 1);
   });

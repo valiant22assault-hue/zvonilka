@@ -32,7 +32,10 @@ final class MqttLink {
     }
 
     static final int KEEPALIVE = 120;          // секунд; пингуем чаще, чтобы брокер не счёл нас пропавшими
-    private static final long PING_EVERY = 60;
+    // Пинг раз в 30 секунд, ответ ждём 8: не пришёл — соединение «полуживое» (от нас уходит, к нам ничего;
+    // так бывает в российских сетях со связью с зарубежными серверами). Тогда входящий звонок не дошёл бы
+    // вовсе — подключаемся заново, и брокер отдаст отложенное предложение звонка.
+    private static final long PING_EVERY = 30, PONG_WAIT = 8;
     private static final SecureRandom RNG = new SecureRandom();
 
     final String url;
@@ -46,7 +49,7 @@ final class MqttLink {
     private byte[] buf = new byte[0];
     private long backoff = 2000, lastRx;
     private int pid;
-    private ScheduledFuture<?> ping, retry;
+    private ScheduledFuture<?> ping, pong, retry;
 
     MqttLink(String url, OkHttpClient http, ScheduledExecutorService exec, Listener listener) {
         this.url = url;
@@ -92,6 +95,7 @@ final class MqttLink {
         ws = null;
         ready = false;
         cancel(ping);
+        cancel(pong);
         listener.onDown(this);
         retry = exec.schedule(this::connect, backoff, TimeUnit.MILLISECONDS);
         backoff = Math.min(60000, backoff * 2);
@@ -109,6 +113,7 @@ final class MqttLink {
         if (closed) return;
         ready = false;
         cancel(ping);
+        cancel(pong);
         backoff = 2000;
         connect();
     }
@@ -117,6 +122,7 @@ final class MqttLink {
         closed = true;
         ready = false;
         cancel(ping);
+        cancel(pong);
         cancel(retry);
         if (ws != null) ws.close(1000, null);
         ws = null;
@@ -143,9 +149,12 @@ final class MqttLink {
 
     private void pingTick() {
         if (!ready || ws == null) return;
-        // Ответов давно нет — соединение повисло (например, телефон сменил сеть), начинаем заново.
-        if (System.currentTimeMillis() - lastRx > (PING_EVERY * 2 + 30) * 1000) { reconnect(); return; }
-        ws.send(ByteString.of(new byte[]{(byte) 0xc0, 0}));
+        final long sent = System.currentTimeMillis();
+        final WebSocket s = ws;
+        s.send(ByteString.of(new byte[]{(byte) 0xc0, 0}));
+        cancel(pong);
+        // Брокер не ответил — соединение повисло (сменилась сеть или его придушили по дороге), начинаем заново.
+        pong = exec.schedule(() -> { if (ready && ws == s && lastRx < sent) reconnect(); }, PONG_WAIT, TimeUnit.SECONDS);
     }
 
     private byte[] connectPacket() {
