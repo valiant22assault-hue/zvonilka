@@ -494,7 +494,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112601;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112602;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 const CONFIG = {
   iceServers: [
@@ -1679,15 +1679,24 @@ function noRoute(call) {
 const iceLogs = new WeakMap();
 function trackIce(pc) {
   if (!pc || iceLogs.has(pc)) return;
-  const log = { cands: [], errs: [], t0: Date.now() };
+  const log = { cands: [], errs: [], errs6: [], fam: new Set(), t0: Date.now() };
   iceLogs.set(pc, log);
   pc.addEventListener('icecandidate', e => {
     const c = e.candidate;
-    if (c?.candidate) log.cands.push({ type: c.type || (c.candidate.match(/ typ (\w+)/) || [])[1], url: c.url || e.url || '' });
+    if (!c?.candidate) return;
+    const type = c.type || (c.candidate.match(/ typ (\w+)/) || [])[1];
+    log.cands.push({ type, url: c.url || e.url || '' });
+    // Какие адреса у самого устройства: IPv4, IPv6 или скрытый (имя .local — какой за ним, браузер не говорит).
+    if (type === 'host') {
+      const a = c.address || c.candidate.split(' ')[4] || '';
+      log.fam.add(a.endsWith('.local') ? '?' : a.includes(':') ? '6' : '4');
+    }
   });
   pc.addEventListener('icecandidateerror', e => {
-    // Ошибки по IPv6 не считаем: его нет у большинства сетей, а по IPv4 тот же сервер при этом работает.
-    if (!String(e.address || '').includes(':')) log.errs.push({ url: e.url || '', code: e.errorCode, text: e.errorText || '' });
+    // Ошибки по IPv6 держим отдельно: у наших серверов адреса IPv6 нет, и при живом IPv4 эти ошибки — шум.
+    // Но если устройство вышло в сеть только по IPv6, кроме них ничего и не будет.
+    const err = { url: e.url || '', code: e.errorCode, text: e.errorText || '' };
+    (String(e.address || '').includes(':') ? log.errs6 : log.errs).push(err);
   });
 }
 // «turn:host:port?transport=tcp» → ключ, одинаковый у адреса из настроек и у адреса из события браузера.
@@ -1722,16 +1731,23 @@ function iceBrief(pc) {
   // Нашёлся путь — браузер перестаёт опрашивать серверы; кто не успел ответить, тот не виноват.
   // А сводка, что уходит собеседнику вместе с визиткой, пишется в первые секунды — медленный сервер там ещё в пути.
   const done = pc.iceGatheringState === 'complete', early = Date.now() - log.t0 < 10000;
-  const status = (ok, err) => ok ? [ok, ''] : err ? [0, iceWhy(err)] : done ? [3, 'не понадобился'] : early ? [4, 'ещё ждали'] : [0, 'нет ответа'];
-  const s = [['внешний адрес', ...status(log.cands.some(c => c.type === 'srflx') ? 1 : 0, log.errs.find(e => /^stun/i.test(e.url)))]];
+  // «Не понадобился» — только когда хоть что-то снаружи нашлось. Если браузер закончил, не получив ни одного
+  // внешнего адреса, значит, он к серверам и не обращался (или обращался только по IPv6) — это поломка, а не экономия.
+  const reach = log.cands.some(c => c.type === 'srflx' || c.type === 'relay');
+  const errs = reach ? log.errs : log.errs.concat(log.errs6.map(e => ({ ...e, v6: true })));
+  const why = e => iceWhy(e) + (e.v6 ? ' (IPv6)' : '');
+  const status = (ok, err) => ok ? [ok, ''] : err ? [0, why(err)] : done ? (reach ? [3, 'не понадобился'] : [0, 'не опрашивался']) : early ? [4, 'ещё ждали'] : [0, 'нет ответа'];
+  const s = [['внешний адрес', ...status(log.cands.some(c => c.type === 'srflx') ? 1 : 0, errs.find(e => /^stun/i.test(e.url)))]];
   const anon = log.cands.some(c => c.type === 'relay' && !c.url);
   for (const u of CONFIG.iceServers.flatMap(x => [].concat(x.urls))) {
     if (!/^turn/i.test(u)) continue;
     const key = iceKey(u), [, host, port, tr] = key.split(':');
     const ok = log.cands.some(c => c.type === 'relay' && iceKey(c.url) === key) ? 1 : anon ? 2 : 0;
-    s.push([hostName(host) + ' ' + tr.toUpperCase() + (port === '3478' ? '' : ':' + port), ...status(ok, log.errs.find(e => iceKey(e.url) === key))]);
+    s.push([hostName(host) + ' ' + tr.toUpperCase() + (port === '3478' ? '' : ':' + port), ...status(ok, errs.find(e => iceKey(e.url) === key))]);
   }
-  return { v: PAGE_VERSION, p: App ? 'телефон' : Desk ? 'программа' : 'браузер', n: netName(), s };
+  // Свои адреса устройства — в сводке, только если с ними что-то не так: нет IPv4 или нет никаких.
+  const a = log.fam.has('4') || log.fam.has('?') ? '' : log.fam.has('6') ? 'только IPv6' : done ? 'без адресов' : '';
+  return { v: PAGE_VERSION, p: App ? 'телефон' : Desk ? 'программа' : 'браузер', n: netName(), a, s };
 }
 
 const markOf = ok => ok === 1 ? ['✓', 'good'] : ok === 2 ? ['?', ''] : ok === 3 ? ['–', ''] : ok === 4 ? ['…', ''] : ['✗', 'bad'];
@@ -1748,7 +1764,10 @@ function sideRows(title, brief) {
   }
   for (const [name, items] of groups) {
     const row = ['in', name + ': '];
-    items.forEach(([kind, ok, why], i) => row.push((i ? ' · ' : '') + kind + ' ', markOf(ok), why ? ' ' + why : ''));
+    // Одна и та же причина у всех адресов сервера — пишем её один раз в конце строки, чтобы сводка влезла в экран.
+    const same = items.length > 1 && items.every(([, ok, why]) => why && why === items[0][2] && ok === items[0][1]);
+    items.forEach(([kind, ok, why], i) => row.push((i ? ' · ' : '') + kind + ' ', markOf(ok), why && !same ? ' ' + why : ''));
+    if (same) row.push(' — ' + items[0][2]);
     rows.push(row);
   }
   return rows;
@@ -1778,12 +1797,12 @@ async function diagRows(call) {
   const when = new Date().toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   rows.push([['Звонилка ' + PAGE_VERSION, 'b'], ' · ' + when]);
   const mine = iceBrief(pc);
-  if (mine) rows.push(...sideRows('Мы (' + [mine.p, mine.n].filter(Boolean).join(', ') + ')', mine));
+  if (mine) rows.push(...sideRows('Мы (' + [mine.p, mine.n, mine.a].filter(Boolean).join(', ') + ')', mine));
   else if (pc.localDescription) rows.push(...sdpRows('Мы', pc.localDescription.sdp));
   const rb = call.remoteIce;
   const who = S.contact?.name;
   if (rb && Array.isArray(rb.s) && rb.s.length) {
-    const about = [who, rb.p, rb.n, rb.v !== PAGE_VERSION ? 'версия ' + rb.v : ''].filter(Boolean).map(x => String(x).slice(0, 30));
+    const about = [who, rb.p, rb.n, rb.a, rb.v !== PAGE_VERSION ? 'версия ' + rb.v : ''].filter(Boolean).map(x => String(x).slice(0, 30));
     rows.push(...sideRows('Собеседник' + (about.length ? ' (' + about.join(', ') + ')' : ''), rb));
   } else if (pc.remoteDescription) rows.push(...sdpRows('Собеседник' + (who ? ' (' + who + ')' : ''), pc.remoteDescription.sdp));
   else rows.push([['Собеседник', 'b'], ': ', ['ответ не пришёл', 'bad']]);
