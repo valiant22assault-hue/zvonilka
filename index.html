@@ -206,6 +206,9 @@
   .msg-sys.call { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0; padding: 4px 12px 4px 10px; border-radius: 999px; background: rgba(255,255,255,.07); }
   .msg-sys.call svg { flex: none; width: 14px; height: 14px; }
   .msg-sys.missed { color: #ff8f92; }
+  .msg-sys.call-box { display: flex; flex-direction: column; align-items: center; margin: 4px 0; }
+  .msg-sys.call-box .msg-sys.call { margin: 0; }
+  .call-q { margin-top: 3px; padding: 0 12px; font-size: 11px; opacity: .8; text-align: center; }
   .ctl.accept, .ctl.accept:hover { background: var(--ok); }
 
   /* входящий звонок */
@@ -494,7 +497,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112604;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112605;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 const CONFIG = {
   iceServers: [
@@ -1555,6 +1558,7 @@ function onConnected() {
   sendState();
   updateRemoteView();
   Ringback.stop();
+  if (S.call?.peerConnection) watchQuality(S.call);
   // Браузер сам выбирает, куда выводить звук разговора, когда тот начинается, — потом ставим выбранное.
   callAudio();
   later('audioRoute', 1500, callAudio);
@@ -1589,16 +1593,68 @@ const CALL_ICON = {
   out: 'callOut', noanswer: 'callOut', declined: 'callOut', busy: 'callOut', cancelled: 'callOut',
   in: 'callIn', rejected: 'callIn', missed: 'callMissed', missedBusy: 'callMissed',
 };
-function logCall(c, callId, kind, ms = 0, ts = Date.now()) {
+function logCall(c, callId, kind, ms = 0, ts = Date.now(), q = '') {
   if (!c || !callId || !CALL_TEXT[kind]) return false;
-  return addHistory(c, { id: 'call-' + callId, sys: CALL_TEXT[kind] + (ms ? ', ' + spoken(ms) : ''), call: kind, ts });
+  return addHistory(c, { id: 'call-' + callId, sys: CALL_TEXT[kind] + (ms ? ', ' + spoken(ms) : ''), call: kind, ts, ...(q && { q }) });
+}
+
+// Качество звука за звонок — строчкой под записью о звонке. Раз в секунду смотрим статистику входящего звука:
+// «провал» — когда звонилке пришлось досочинять звук от собеседника дольше 0,1 с подряд (пакеты потерялись
+// или опоздали). Если провал слышали, а здесь «без провалов», то дело не в сети: эхоподавление, наушники.
+function watchQuality(call) {
+  const q = call.quality = { gaps: 0, worst: 0, run: 0, prev: null };
+  const step = async () => {
+    if (S.call !== call || !S.connected) return;
+    try {
+      const st = await call.peerConnection.getStats();
+      let inb, out, rin, pair;
+      st.forEach(r => {
+        if (r.type === 'transport' && r.selectedCandidatePairId) pair = st.get(r.selectedCandidatePairId);
+        if (r.kind !== 'audio') return;
+        if (r.type === 'inbound-rtp') inb = r;
+        else if (r.type === 'outbound-rtp') out = r;
+        else if (r.type === 'remote-inbound-rtp') rin = r;
+      });
+      const p = q.prev, dt = p && inb ? inb.timestamp - p.timestamp : 0;
+      const total = p && inb ? inb.totalSamplesReceived - p.totalSamplesReceived : 0;
+      if (dt > 0 && dt < 2500 && total > 0) {
+        const ms = (inb.concealedSamples - p.concealedSamples) / total * dt;
+        if (ms >= 20) q.run += ms;
+        else {
+          if (q.run >= 100) { q.gaps++; q.worst = Math.max(q.worst, q.run); }
+          q.run = 0;
+        }
+      } else q.run = 0;   // страница стояла на паузе — этот промежуток не считаем
+      if (inb) {
+        q.prev = inb;
+        q.lostIn = inb.packetsLost / Math.max(1, inb.packetsReceived + inb.packetsLost);
+      }
+      if (rin && out) q.lostOut = Math.max(0, rin.packetsLost) / Math.max(1, out.packetsSent);
+      if (pair) q.relay = [pair.localCandidateId, pair.remoteCandidateId].some(id => st.get(id)?.candidateType === 'relay');
+    } catch (e) {}
+    if (S.call === call) later('quality', 1000, step);
+  };
+  // Первые секунды не считаем: пока звук только пошёл, звонилка подстраивается под сеть.
+  later('quality', 3000, step);
+}
+// Незаконченный провал (звонок кончился посреди него) не считаем: это уже не разговор.
+function qualityLine(call) {
+  const q = call?.quality;
+  if (!q?.prev) return '';
+  const n = q.gaps, num = x => String(Math.round(x * 10) / 10).replace('.', ',');
+  const pct = x => x == null ? '—' : num(x * 100) + '%';
+  const times = n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'раза' : 'раз';
+  const parts = [n ? `Звук прерывался ${n} ${times}, дольше всего ${num(q.worst / 1000)} с` : 'Звук без провалов'];
+  if (q.lostIn >= 0.001 || q.lostOut >= 0.001) parts.push(`потери: к вам ${pct(q.lostIn)}, к собеседнику ${pct(q.lostOut)}`);
+  if (q.relay != null) parts.push(q.relay ? 'через посредника' : 'напрямую');
+  return parts.join(' · ');
 }
 
 function dropCall() {
   // Состоявшийся звонок с контактом — строчка в переписке.
   if (S.connected && S.chatWith) {
     const kind = S.contact ? (S.role === 'offerer' ? 'out' : 'in') : 'call';
-    logCall(S.chatWith, S.callId || S.startedAt, kind, Date.now() - S.startedAt);
+    logCall(S.chatWith, S.callId || S.startedAt, kind, Date.now() - S.startedAt, Date.now(), qualityLine(S.call));
   }
   // Звонок по ссылке: в комнату может зайти уже другой человек — его заново проверим при подключении.
   if (S.chatWith && S.chatWith !== S.contact) { S.chatWith = null; resetChat(); }
@@ -1606,7 +1662,7 @@ function dropCall() {
   Ringback.stop();
   stopRemote(false);
   endControl(false);
-  cancel('join', 'joinGuard', 'moreAgain', 'drop', 'stateFallback', 'audioRoute');
+  cancel('join', 'joinGuard', 'moreAgain', 'drop', 'stateFallback', 'audioRoute', 'quality');
   clearInterval(S.tickTimer);
   const call = S.call, dc = S.dc;
   S.call = null;
@@ -1920,12 +1976,16 @@ function parseDirectLink(text) {
 }
 
 // Оставляем только Opus и VP8: визитка, а значит и ссылка, становится заметно короче.
+// И RED — «дублирование звука»: в каждом пакете едет ещё и копия предыдущего кусочка, поэтому одиночная
+// потеря пакета в сети не слышна. Он первый в списке, то есть главный; у старой звонилки собеседника
+// его нет — тогда договоримся просто на Opus.
 function slimCodecs(pc) {
   if (!window.RTCRtpReceiver?.getCapabilities) return;
   for (const tr of pc.getTransceivers()) {
     const kind = tr.sender.track?.kind || tr.receiver.track?.kind;
-    const keep = kind === 'audio' ? ['audio/opus'] : ['video/VP8', 'video/rtx'];
-    const codecs = (RTCRtpReceiver.getCapabilities(kind)?.codecs || []).filter(c => keep.includes(c.mimeType));
+    const keep = kind === 'audio' ? ['audio/red', 'audio/opus'] : ['video/VP8', 'video/rtx'];
+    const codecs = (RTCRtpReceiver.getCapabilities(kind)?.codecs || []).filter(c => keep.includes(c.mimeType))
+      .sort((a, b) => keep.indexOf(a.mimeType) - keep.indexOf(b.mimeType));
     try { if (codecs.length) tr.setCodecPreferences(codecs); } catch (e) {}
   }
 }
@@ -2725,6 +2785,7 @@ function mergeHistory(cid, list) {
     if (typeof e.status === 'string') m.status = e.status;
     if (typeof e.sys === 'string') m.sys = e.sys.slice(0, 200);
     if (typeof e.call === 'string') m.call = e.call;
+    if (typeof e.q === 'string') m.q = e.q.slice(0, 200);
     cur.push(m);
     ids.add(m.id);
     added++;
@@ -2974,7 +3035,13 @@ function renderHistory(log, list, emptyText) {
       el.className = 'msg-sys' + (m.call ? ' call' : '') + (CALL_ICON[m.call] === 'callMissed' ? ' missed' : '');
       if (m.call) el.innerHTML = iconSvg(CALL_ICON[m.call] || 'phone');
       el.append(m.sys + ' · ' + timeOf(m.ts));
-      return el;
+      if (!m.q) return el;
+      const box = document.createElement('div'), q = document.createElement('div');
+      box.className = 'msg-sys call-box';
+      q.className = 'call-q';
+      q.textContent = m.q;
+      box.append(el, q);
+      return box;
     }));
   }
   log.scrollTop = log.scrollHeight;
