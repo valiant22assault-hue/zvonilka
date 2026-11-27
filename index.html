@@ -497,7 +497,7 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112701;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112702;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 // Свой сервер в Петербурге: реле для вызовов и посредник для разговора. С ноября 2026-го российские провайдеры
 // замораживают соединения с зарубежными облаками (AWS, Hetzner и др.) примерно после 16 КБ — а оба общественных реле
@@ -1543,16 +1543,22 @@ function onIce(call, st) {
   if (S.call !== call) return;
   if (st === 'connected' || st === 'completed') {
     cancel('join', 'drop');
+    if (call.down) { call.down = false; noteCall('связь восстановилась', call); }
     if (!S.connected) { S.connected = true; onConnected(); }
   } else if (st === 'disconnected') {
-    if (S.connected) toast('Связь прерывается…', 4000);
+    if (S.connected) { toast('Связь прерывается…', 4000); call.down = true; noteCall('связь прерывается', call); }
     // Через сервер звонилка переподключится сама, а без сервера после разрыва нужны новые ссылки —
     // поэтому там ждём дольше: связь часто возвращается сама.
-    later('drop', S.mode === 'direct' ? 45000 : 10000, () => { if (S.call === call) onRemoteGone(); });
+    later('drop', S.mode === 'direct' ? 45000 : 10000, () => {
+      if (S.call !== call) return;
+      if (S.connected && S.mode === 'direct') lostCall(call);
+      else onRemoteGone();
+    });
   } else if (st === 'failed') {
     // Без сервера отвечающий ждёт, пока собеседник откроет ответную ссылку: до этого проверки связи неизбежно не проходят.
     if (S.mode === 'direct' && S.role === 'answerer' && !S.connected) return;
-    failCall(S.connected ? 'Связь оборвалась.' : noRoute(call), S.connected ? null : call);
+    if (S.connected) lostCall(call);
+    else failCall(noRoute(call), call);
   }
 }
 
@@ -1639,6 +1645,23 @@ function watchQuality(call) {
       }
       if (rin && out) q.lostOut = Math.max(0, rin.packetsLost) / Math.max(1, out.packetsSent);
       if (pair) q.relay = [pair.localCandidateId, pair.remoteCandidateId].some(id => st.get(id)?.candidateType === 'relay');
+      // Для журнала звонка: каким путём идёт разговор и когда звук от собеседника перестал приходить.
+      if (pair) {
+        const path = pathText(st.get(pair.localCandidateId), st.get(pair.remoteCandidateId));
+        if (path && path !== q.path) { if (q.path) noteCall('путь сменился: ' + path, call); q.path = path; }
+      }
+      if (inb) {
+        const now = Date.now();
+        if (q.rx == null || inb.packetsReceived > q.rx) {
+          if (q.silentSince) noteCall(`звук от собеседника снова идёт (не было ${spoken(now - q.silentSince)})`, call);
+          q.silentSince = 0;
+          q.lastRx = now;
+        } else if (!q.silentSince && now - q.lastRx >= 2000) {
+          q.silentSince = q.lastRx;
+          noteCall('звук от собеседника перестал приходить', call, q.lastRx);
+        }
+        q.rx = inb.packetsReceived;
+      }
     } catch (e) {}
     if (S.call === call) later('quality', 1000, step);
   };
@@ -1655,14 +1678,112 @@ function qualityLine(call) {
   const parts = [n ? `Звук прерывался ${n} ${times}, дольше всего ${num(q.worst / 1000)} с` : 'Звук без провалов'];
   if (q.lostIn >= 0.001 || q.lostOut >= 0.001) parts.push(`потери: к вам ${pct(q.lostIn)}, к собеседнику ${pct(q.lostOut)}`);
   if (q.relay != null) parts.push(q.relay ? 'через посредника' : 'напрямую');
+  if (call.lost) parts.push('связь оборвалась');
   return parts.join(' · ');
 }
+
+// ---------- журнал звонка ----------
+// События разговора — сеть, свёрнутая звонилка, путь, пропавший звук. При обрыве по ним видно, что случилось перед ним.
+function noteCall(text, call = S.call, at = Date.now()) {
+  if (!call) return;
+  const ev = call.events || (call.events = []);
+  ev.push({ at, text });
+  if (ev.length > 60) ev.shift();
+}
+let lastNet = netName();
+navigator.connection?.addEventListener?.('change', () => {
+  const now = netName();
+  if (now !== lastNet && S.connected) noteCall('сеть сменилась: ' + (lastNet || '?') + ' → ' + (now || '?'));
+  lastNet = now;
+});
+addEventListener('offline', () => { if (S.connected) noteCall('интернет пропал'); });
+addEventListener('online', () => { if (S.connected) noteCall('интернет вернулся'); flushDiag(); });
+document.addEventListener('visibilitychange', () => { if (S.connected) noteCall(document.hidden ? 'звонилка свёрнута' : 'звонилка снова на экране'); });
+
+// Каким путём идёт разговор: напрямую или через посредника (какого и каким способом до него).
+function pathText(loc, rem) {
+  if (!loc || !rem) return '';
+  if (loc.candidateType === 'relay') {
+    const key = loc.url ? iceKey(loc.url) : '';
+    const name = key ? hostName(key.split(':')[1]) : '';
+    return 'через посредника' + (name ? ' «' + name + '»' : '') + (loc.relayProtocol ? ' ' + loc.relayProtocol.toUpperCase() : '')
+      + (rem.candidateType === 'relay' ? ', у собеседника тоже' : '');
+  }
+  if (rem.candidateType === 'relay') return 'через посредника собеседника';
+  return 'напрямую' + (loc.candidateType === 'host' && rem.candidateType === 'host' ? ' (в одной сети)' : '');
+}
+
+// Разговор шёл и оборвался: у кого-то пропал или сменился интернет, посредник перестал отвечать.
+// Показываем, что было перед обрывом, и отправляем отчёт в журнал на своём сервере.
+async function lostCall(call) {
+  if (S.call !== call || call.lost) return;
+  call.lost = true;
+  noteCall('связь потеряна', call);
+  const end = Date.now();
+  const recent = (call.events || []).filter(e => end - e.at < 45000).map(e => e.text);
+  const reason = recent.some(t => t.startsWith('сеть сменилась') || t === 'интернет пропал')
+    ? 'У вас пропал или сменился интернет, и звонок не успел перейти на новую сеть. Позвоните ещё раз.'
+    : 'Пропала связь между вами: интернет у одного из вас или посредник. Позвоните ещё раз; подробности записаны в журнал.';
+  const q = call.quality || {};
+  const rows = [[['Звонилка ' + PAGE_VERSION, 'b'], ' · ' + new Date(end).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })]];
+  rows.push([['Разговор', 'b'], ': ' + spoken(end - S.startedAt) + (q.path ? ', ' + q.path : '')]);
+  const ev = (call.events || []).filter(e => end - e.at < 120000);
+  if (ev.length) {
+    rows.push([['Перед обрывом', 'b'], ':']);
+    for (const e of ev) rows.push(['in', (end - e.at < 1000 ? 'сейчас' : 'за ' + spoken(end - e.at)) + ' — ' + e.text]);
+  }
+  rows.push(relayRow());
+  if (lastError) rows.push([['Сбой', 'b'], ': ', [lastError, 'bad']]);
+  reportCall('drop', call, { reason, rows });
+  dropCall();
+  setStatus('Связь оборвалась', { retry: true });
+  try { showDiag(rows, reason); } catch (e) { noteError(e); }
+}
+
+// Журнал звонков на своём сервере: отчёт о каждом звонке — не соединился, оборвался, не дозвонились, завершён.
+// Разработчик потом разбирает по нему, что случилось. Ни переписки, ни звука там нет: версия, сеть, путь, события.
+const DIAG_URL = `https://${OWN.host}/diag`;
+function reportCall(kind, call, { reason = '', rows = null } = {}) {
+  try {
+    const q = call?.quality || {};
+    const text = parts => parts.filter(x => x !== 'in').map(x => Array.isArray(x) ? x[0] : x).join('');
+    const r = {
+      kind, v: PAGE_VERSION, at: new Date().toISOString(), me: Me.name || '', peer: S.contact?.name || S.chatWith?.name || '',
+      callId: S.callId || '', role: S.role || '',
+      dev: [App ? 'телефон' : Desk ? 'программа' : 'браузер', netName()].filter(Boolean).join(', '),
+      ua: navigator.userAgent.replace(/Mozilla\/5\.0 |AppleWebKit\/[\d.]+ |\(KHTML, like Gecko\) |Safari\/[\d.]+|Mobile /g, '').trim().slice(0, 140),
+      reason, dur: S.connected && S.startedAt ? Math.round((Date.now() - S.startedAt) / 1000) : 0,
+      q: call ? qualityLine(call) : '', path: q.path || '',
+      rows: rows ? rows.map(p => (p[0] === 'in' ? '  ' : '') + text(p)) : null,
+      ev: (call?.events || []).slice(-40).map(e => new Date(e.at).toISOString().slice(11, 19) + 'Z ' + e.text),
+      relays: Relay.links.map(l => hostName(new URL(l.url).hostname) + (l.ready ? ' ✓' : ' ✗') + (l.connects > 1 ? ' переподключений ' + (l.connects - 1) : '')),
+      err: lastError || '',
+    };
+    Store.set('diagQueue', Store.get('diagQueue', []).concat([r]).slice(-30));
+    flushDiag();
+  } catch (e) { noteError(e); }
+}
+// Отчёты копятся в очереди и уходят, когда есть связь с сервером: при обрыве интернета — позже.
+let diagFlushing = false;
+async function flushDiag() {
+  if (diagFlushing) return;
+  diagFlushing = true;
+  try {
+    for (let list = Store.get('diagQueue', []); list.length; list = Store.get('diagQueue', [])) {
+      await fetch(DIAG_URL, { method: 'POST', mode: 'no-cors', keepalive: true, headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(list[0]) });
+      Store.set('diagQueue', Store.get('diagQueue', []).slice(1));
+    }
+  } catch (e) {}   // сервер недоступен — отправим в следующий раз
+  diagFlushing = false;
+}
+setTimeout(flushDiag, 15000);
 
 function dropCall() {
   // Состоявшийся звонок с контактом — строчка в переписке.
   if (S.connected && S.chatWith) {
     const kind = S.contact ? (S.role === 'offerer' ? 'out' : 'in') : 'call';
     logCall(S.chatWith, S.callId || S.startedAt, kind, Date.now() - S.startedAt, Date.now(), qualityLine(S.call));
+    if (!S.call?.lost) reportCall('end', S.call);
   }
   // Звонок по ссылке: в комнату может зайти уже другой человек — его заново проверим при подключении.
   if (S.chatWith && S.chatWith !== S.contact) { S.chatWith = null; resetChat(); }
@@ -1733,6 +1854,7 @@ async function failCall(msg, call = null) {
   try { if (call?.peerConnection && !S.connected) rows = await diagRows(call); } catch (e) { noteError(e); }
   if (call && (S.call !== call || S.connected)) return;   // пока собирали, звонок закрыли, начали новый или он соединился
   if (S.contact && !S.connected) logCall(S.contact, S.callId, 'failed');
+  reportCall('fail', call || S.call, { reason: msg, rows });
   dropCall();
   if (!rows) return setStatus(msg + (lastError ? ' (сбой: ' + lastError + ')' : ''), { retry: true });
   // Сверху коротко и сразу просьба о снимке — до сводки внизу экрана многие не дочитывают.
@@ -1899,13 +2021,14 @@ async function diagRows(call) {
     if (DTLS_RU[st.dtls]) row.push(' · шифрование: ', [DTLS_RU[st.dtls], st.dtls === 'connected' ? 'good' : 'bad']);
     rows.push(row);
   }
-  if (Relay.links.length) {
-    const row = [['Реле сообщений', 'b'], ': '];
-    Relay.links.forEach((l, i) => row.push((i ? ' · ' : '') + hostName(new URL(l.url).hostname) + ' ', markOf(l.ready ? 1 : 0)));
-    rows.push(row);
-  }
+  if (Relay.links.length) rows.push(relayRow());
   if (lastError) rows.push([['Сбой', 'b'], ': ', [lastError, 'bad']]);
   return rows;
+}
+function relayRow() {
+  const row = [['Реле сообщений', 'b'], ': '];
+  Relay.links.forEach((l, i) => row.push((i ? ' · ' : '') + hostName(new URL(l.url).hostname) + ' ', markOf(l.ready ? 1 : 0)));
+  return row;
 }
 // Строка — массив кусков: текст или [текст, класс]; 'in' в начале — строка с отступом.
 function showDiag(rows, reason) {
@@ -2335,6 +2458,7 @@ class MqttLink {
     return concatBytes(new Uint8Array([type, ...len]), body);
   }
   connect() {
+    this.connects = (this.connects || 0) + 1;   // для журнала: часто переподключается — значит, связь с реле душат
     let ws;
     try { ws = new WebSocket(this.url, ['mqtt']); } catch (e) { return this.retry(); }
     ws.binaryType = 'arraybuffer';
@@ -3296,6 +3420,8 @@ async function callContact(c) {
   later('ring', 60000, () => {
     if (S.call !== call || S.connected) return;
     logCall(c, S.callId, 'noanswer');
+    // Для журнала: дошёл ли вызов до телефона (звонил ли он) и были ли живы реле.
+    reportCall('noanswer', call, { reason: pickedUp === S.callId ? 'трубку взяли, но ответ не дошёл' : S.ringSeen === S.callId ? 'телефон звонил, не ответили' : 'не подтвердил, что звонит' });
     endContactCall('Не отвечает.');
   });
 }
@@ -3328,7 +3454,10 @@ async function onCallSignal(c, d) {
     later('ring', 30000, () => {
       if (S.call === call && S.awaiting) failCall('Не удалось соединиться: ответ собеседника не дошёл. Позвоните ещё раз.', call);
     });
-  } else if (d.t === 'ringing' && S.awaiting && pickedUp !== d.callId) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
+  } else if (d.t === 'ringing' && S.awaiting) {
+    S.ringSeen = d.callId;   // для журнала: вызов дошёл до телефона
+    if (pickedUp !== d.callId) setStatus(c.name + ': телефон звонит, ждём ответа…', { share: false });
+  }
   else if (d.t === 'decline') {
     logCall(c, d.callId, 'declined');
     endContactCall('Звонок отклонён.');
