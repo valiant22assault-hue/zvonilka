@@ -497,12 +497,19 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112605;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112701;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+
+// Свой сервер в Петербурге: реле для вызовов и посредник для разговора. С ноября 2026-го российские провайдеры
+// замораживают соединения с зарубежными облаками (AWS, Hetzner и др.) примерно после 16 КБ — а оба общественных реле
+// и все бесплатные посредники стоят именно там. Сервер внутри России так не режут, а из-за границы он доступен.
+const OWN = { ip: '94.159.96.240', host: '94-159-96-240.sslip.io' };
 
 const CONFIG = {
   iceServers: [
     // STUN только сообщает браузеру его внешний адрес. Яндекс и Sipnet — на случай, если Google недоступен.
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun.rtc.yandex.net:3478', 'stun:stun.sipnet.ru:3478'] },
+    { urls: [`stun:${OWN.ip}:3478`, 'stun:stun.l.google.com:19302', 'stun:stun.rtc.yandex.net:3478', 'stun:stun.sipnet.ru:3478'] },
+    // Свой посредник стоит первым: из всех посредников браузер выбирает его раньше остальных.
+    { urls: [`turn:${OWN.ip}:3478`, `turn:${OWN.ip}:3478?transport=tcp`, `turns:${OWN.host}:5349?transport=tcp`], username: 'zvonilka', credential: 'DYmdKe63tBm4vtHcsqJJ' },
     // TURN — посредник для самого разговора: через него звонок идёт, только когда напрямую соединиться не выходит
     // (сеть провайдера, блокировки). Бесплатный ExpressTURN, 1000 ГБ в месяц; логин и пароль видны в коде страницы.
     { urls: ['turn:free.expressturn.com:3478', 'turn:free.expressturn.com:3478?transport=tcp'], username: '000000002108864532', credential: 'LAE6c1HaWOZplIW6PJ2iq+/o/ds=' },
@@ -519,8 +526,9 @@ const CONFIG = {
   // пути не получила ответа — пути нет. Если путь уже нащупан, ждём ещё joinGrace (медленная сеть, посредник далеко).
   joinTimeout: 8000,
   joinGrace: 7000,
-  // Реле для контактов и переписки — общедоступные MQTT-брокеры. Сообщения шифруются: ключ знают только двое.
-  relays: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'],
+  // Реле для контактов и переписки: своё и два общедоступных MQTT-брокера. Работают все сразу, сообщение доходит
+  // по любому. Сообщения шифруются: ключ знают только двое.
+  relays: [`wss://${OWN.host}/mqtt`, 'wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'],
   // Функция push-уведомлений (адреса пробуются по очереди) и её публичный ключ.
   pushUrls: ['https://zvonilka-online.netlify.app/api/push'],
   vapidPublicKey: 'BIV-1_xeVcIjQqzr_3S2aXYoDmDL8sIH_C63wjwNdWALROc8EyeWv7uXYUmilAdzHszeVXsrjxTGZClnOh3RjUI',
@@ -1780,8 +1788,12 @@ function iceKey(url) {
   const tls = !!m[2];
   return [m[1].toLowerCase(), m[3].toLowerCase(), m[4] || (tls ? '5349' : '3478'), tls ? 'tls' : (m[5] || 'udp').toLowerCase()].join(':');
 }
-// free.expressturn.com → expressturn; адрес-число оставляем как есть.
-const hostName = host => { const p = host.split('.'); return /^[\d.]+$|:/.test(host) || p.length < 2 ? host : p[p.length - 2]; };
+// free.expressturn.com → expressturn; свой сервер — «свой»; адрес-число оставляем как есть.
+const hostName = host => {
+  if (host === OWN.ip || host === OWN.host) return 'свой';
+  const p = host.split('.');
+  return /^[\d.]+$|:/.test(host) || p.length < 2 ? host : p[p.length - 2];
+};
 function iceWhy(e) {
   if (!e) return 'нет ответа';
   const t = e.text.toLowerCase();
