@@ -497,12 +497,13 @@
 <script>
 'use strict';
 
-const PAGE_VERSION = 2026112702;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
+const PAGE_VERSION = 2026112703;   // при каждой выкладке — новое число здесь и в version.txt (см. «обновление страницы»)
 
 // Свой сервер в Петербурге: реле для вызовов и посредник для разговора. С ноября 2026-го российские провайдеры
 // замораживают соединения с зарубежными облаками (AWS, Hetzner и др.) примерно после 16 КБ — а оба общественных реле
 // и все бесплатные посредники стоят именно там. Сервер внутри России так не режут, а из-за границы он доступен.
-const OWN = { ip: '94.159.96.240', host: '94-159-96-240.sslip.io' };
+// name — как он подписан в сводке и журнале.
+const OWN = { ip: '94.159.96.240', host: '94-159-96-240.sslip.io', name: 'звонилка-1' };
 
 const CONFIG = {
   iceServers: [
@@ -1910,9 +1911,9 @@ function iceKey(url) {
   const tls = !!m[2];
   return [m[1].toLowerCase(), m[3].toLowerCase(), m[4] || (tls ? '5349' : '3478'), tls ? 'tls' : (m[5] || 'udp').toLowerCase()].join(':');
 }
-// free.expressturn.com → expressturn; свой сервер — «свой»; адрес-число оставляем как есть.
+// free.expressturn.com → expressturn; свой сервер — его имя (звонилка-1); адрес-число оставляем как есть.
 const hostName = host => {
-  if (host === OWN.ip || host === OWN.host) return 'свой';
+  if (host === OWN.ip || host === OWN.host) return OWN.name;
   const p = host.split('.');
   return /^[\d.]+$|:/.test(host) || p.length < 2 ? host : p[p.length - 2];
 };
